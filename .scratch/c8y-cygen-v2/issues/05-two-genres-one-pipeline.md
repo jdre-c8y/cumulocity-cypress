@@ -34,3 +34,13 @@ about which to invoke.
 
 If the honest answer is "these are two efforts", say so — that is a legitimate outcome
 and better found here than after the spec is written.
+
+## Context from resolved tickets
+
+[Define the acceptance benchmark](01-acceptance-benchmark.md) deliberately **excluded**
+contract-genre oracles rather than pre-empting this decision. This ticket therefore also
+owns whether the benchmark gains one. Nominated candidate, ready to adopt if the answer
+is "one pipeline": `c8y-ai-agents/cypress/e2e/contracts/mcp-roundtrip.cy.ts:12`
+`"get MCP servers list"` — cost 0 interactions, 80 lines, 10 assertions, 1 `cy.request`.
+Note that every contract-genre test in that repo scores **cost 0** — no browser
+interaction at all — which is itself evidence bearing on this question.

@@ -45,3 +45,22 @@ live and adjusts — e.g. a pre-flight pass that fingerprints a component's sele
 contract across its own branches *before* any assertion is written against it? What
 would such a pass cost, how would it enumerate the branches, and would it have caught
 both failures above?
+
+## Context from resolved tickets
+
+[Define the acceptance benchmark](01-acceptance-benchmark.md) selected two oracles that
+exercise this ticket's hazards directly, both with hand-written references to check a
+proposed ladder against:
+
+- **B2** `cumulocity-ui/cypress/e2e/appEnablementTeam/cockpitWidgets.cy.ts:1687` — the
+  assertion selector *changes with the render mode*
+  (`'[data-label*="e2eSeries"] .text-truncate'` → `'.text-truncate'`), plus a
+  `have.length 3` → `have.length 1` count assertion across a state change.
+- **B4** `c8y-ai-agents/cypress/e2e/no-llm/provider-management.cy.ts:9` — spans four
+  ladder rungs in one test, and surfaced a **third hazard variant not in the groundwork:
+  a state-dependent label.** The same control reads "Add global provider" before a
+  provider exists and "Change provider" after; the oracle uses a regex on first use and a
+  plain string on the second. Add this to Part 2's hazard list.
+
+A proposed ladder can be validated cheaply by checking it would reproduce the selector
+choices these two oracles' authors actually made.

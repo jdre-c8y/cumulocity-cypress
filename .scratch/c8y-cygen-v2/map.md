@@ -65,7 +65,13 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
 
 <!-- one line per closed ticket: gist + link. Empty until the first ticket resolves. -->
 
-_None yet._
+- [Define the acceptance benchmark](issues/01-acceptance-benchmark.md) — five oracles at
+  `it()` granularity (not spec-file), graded PASS / PASS-WITH-ASSIST / FAIL on green
+  (first attempt, no retries) + outcome coverage + flow equivalence + house style. Bar:
+  >=4 of 5 PASS, zero FAIL, baseline must PASS, plugin must at least ASSIST. Two grading
+  modes, because the hard tier has no hand-written reference — and production never has
+  one either. v1's reconstructed score: 1 PASS / 1 ASSIST / 3 unattempted. Definition and
+  contracts in [`benchmark/`](benchmark/README.md).
 
 ## Not yet specified
 
