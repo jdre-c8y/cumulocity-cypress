@@ -73,16 +73,23 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   one either. v1's reconstructed score: 1 PASS / 1 ASSIST / 3 unattempted. Definition and
   contracts in [`benchmark/`](benchmark/README.md).
 
+- [Emission target: TypeScript spec, declarative DSL, or hybrid?](issues/03-emission-target.md) —
+  **(c)**: the agent emits a declarative IR; a compiler turns it into house-style
+  TypeScript, which is what lands in the repo. Convergence check passed on its
+  pre-registered criterion (oracle B4 needed 0 new verbs), though growth is in
+  *properties* not verbs (8 new). Carries two now-mandatory requirements: a **source map**
+  from emitted assertions back to IR steps, and a **broken-file regression corpus** for the
+  schema and linter — one capability addition silently cut schema coverage 3->2 during the
+  prototype. Prototype: branch `prototype/03-emission-target` (`171af62`).
+
 ## Not yet specified
 
 In scope, but not yet sharp enough to ticket. Graduates as the frontier advances.
 
-- **Loop shape.** One undifferentiated agent session (v1) vs. separated phases — gather
-  facts / write spec / fix a specific failure — possibly on different models. Cannot be
-  phrased sharply until the emission target and ground-truth strategy are settled.
-- **Heal granularity.** Re-running a whole self-heal attempt vs. surgically patching
-  just the failing part given the exact diagnostic. Shape depends on what the emission
-  target makes patchable.
+<!-- graduated to tickets by the emission-target decision:
+     Loop shape -> issues/10-loop-shape.md
+     Heal granularity -> issues/11-heal-granularity.md -->
+
 - **Cost predictability.** Pre-run estimate, hard budget ceiling, visible per-turn
   progress, distinguishing productive exploration from a stuck loop. v1 silently
   exhausted a 50-turn budget three times with no diagnostic signal. Depends on loop

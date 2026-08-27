@@ -39,3 +39,22 @@ Resolve:
 
 Prototype by hand-writing the file for **both** repos. Two concrete instances will
 expose what the format actually needs far faster than designing the schema first.
+
+## Context from resolved tickets
+
+[Emission target](03-emission-target.md) chose (c) — an IR compiled to house-style
+TypeScript — which makes this ticket's output **load-bearing rather than advisory.** The
+compiler reads a per-repo style profile; if that profile is wrong, the generated spec is
+wrong, not merely unidiomatic.
+
+The prototype (branch `prototype/03-emission-target`) contains a working two-repo profile
+at `c-hybrid/styles.json` covering navigation idiom, quote preference, indent, whether
+`describe` carries tags, and helper import path. Two findings for this ticket's capture set:
+
+- **A quote *preference* is not enough.** A profile naming `"` as preferred made the
+  compiler emit `cy.get("[data-cy="…"]")`, which does not parse. The profile must feed a
+  real string emitter, so what it captures is a *default*, not a rule.
+- **Auth and setup idioms belong in the profile, not the IR.** B4's
+  `cy.disableCookieBanner()` and `cy.getAuth("admin").login()` are repo facts;
+  `cy.mockFeatureAsEnabled("ui.ai-agent-manager")` is scenario-specific. That line has to
+  be drawn explicitly, and this ticket is where.
