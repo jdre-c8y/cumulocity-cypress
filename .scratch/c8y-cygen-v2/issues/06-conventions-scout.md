@@ -58,3 +58,47 @@ at `c-hybrid/styles.json` covering navigation idiom, quote preference, indent, w
   `cy.disableCookieBanner()` and `cy.getAuth("admin").login()` are repo facts;
   `cy.mockFeatureAsEnabled("ui.ai-agent-manager")` is scenario-specific. That line has to
   be drawn explicitly, and this ticket is where.
+
+---
+
+## Scope grown by ticket 02 (ground truth)
+
+The scout no longer captures style alone. It produces **one reviewable artifact per repo**
+carrying three payloads, because all three have identical economics — mined once, reviewed
+by a human, read statically by every later run, and stale in exactly the same way:
+
+1. **Style profile** (original scope; load-bearing under ticket 03's compiler).
+2. **Reachability index** — extracted lexically by route and component tag from the repo's
+   existing specs: the proven navigation sequences, the wait idioms, which request each
+   step waits on. `cumulocity-ui`'s 154-spec corpus makes this rich; `c8y-ai-agents`'
+   11 specs make it thin, and the generator must behave the same either way. Read as
+   **priors, always verified live** — never copied unverified. Embeddings were considered
+   and rejected: against 154 files the route string is a near-perfect key.
+3. **Blessed setup vocabulary** — the closed, per-repo list of moves that count as setup.
+   This is the load-bearing one, because ticket 02 made it the primary cost lever in the
+   design: a precondition with no blessed move can only be established by clicking through
+   the UI.
+
+Facts ticket 02 hands this ticket for payload 3:
+
+- The published library already supplies pairs — `createUser`/`deleteUser`,
+  `createGlobalRole`/`deleteGlobalRoles`, `assignUserRoles`/`clearUserRoles` — plus
+  `getAuth`/`login`/`oauthLogin`/`useAuth`, `getCurrentTenant`, `getTenantId`,
+  `setLanguage`, `visitAndWaitToFinishLoading`. The create/delete pairing *is* the
+  "reset only what you created" rule already encoded; the scout's output format should
+  preserve the pairing, not flatten it to a list.
+- `cumulocity-ui` adds repo-local moves: `createDevice` (60 uses), `createMockedDevice`
+  (49), `mockMOsPerCurrentPage` (29), `createTenant`, `getDeviceIdByName`.
+  `c8y-ai-agents` adds essentially only `mockFeatureAsEnabled`.
+- **`cy.c8yclient` and `cy.retryRequest` must never be blessed** — arbitrary
+  authenticated REST with no paired teardown. Detecting and excluding them is a scout
+  requirement, not an afterthought.
+- Some blessed moves fabricate in ways the agent may not re-derive: `createMockedDevice`
+  synthesises `self: 'https://someTenant.stage.c8y.io/…'`, a hostname no real tenant
+  returns. The artifact must therefore mark each move as *real-state* or *fabricating*,
+  since ticket 02's rule 3 permits fabrication only via a blessed helper or by recorded
+  mutation of an observed response.
+
+Open for this ticket: whether the three payloads are one file or three, and whether the
+scout is one pass or three. Ticket 02 only fixes that they share an artifact, a review,
+and a lifetime.

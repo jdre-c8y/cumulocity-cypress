@@ -2,7 +2,7 @@
 
 Type: prototype
 Status: open
-Blocked by: 02
+Blocked by: — (02 resolved)
 
 ## Question
 
@@ -64,3 +64,34 @@ proposed ladder against:
 
 A proposed ladder can be validated cheaply by checking it would reproduce the selector
 choices these two oracles' authors actually made.
+
+---
+
+## Added by ticket 02 (ground truth)
+
+Ticket 02 decided the model is **never shown DOM**. It is shown a **candidate table**, and
+this ticket now owns that table's schema — the ladder ranks its rows rather than
+reconstructing a document.
+
+One row per element that could plausibly be acted on or asserted against, carrying at
+minimum: ladder-ranked selector, tag, `data-cy`, role, accessible name, visible text,
+visibility. The state's observed network calls ride alongside the table.
+
+This makes the ladder's output a **committed, machine-checkable artifact** rather than
+prose guidance, and it carries an invariant the linter enforces:
+
+> **No selector may appear in the IR unless a probe observed it.**
+
+That converts hallucinated selectors — which v1 emitted and a human had to hand-patch —
+from discouraged to structurally impossible.
+
+Also handed over by ticket 02: `Q8(c)`, **second-state re-observation**, is reserved and
+opt-in per scenario, and this ticket decides when it fires. It is the only mechanism that
+would automatically catch the groundwork's "same element, different `[data-cy]` per
+rendered branch" hazard, since it re-probes the same surface from a second established
+state and diffs the candidate tables. It roughly doubles observation cost, so it cannot be
+the default.
+
+Note the interaction with ticket 02's falsification criterion: second-state re-observation
+costs a probe run, and the criterion reopens the Cypress-probe decision at more than ~3
+probe runs per scenario. Whatever trigger this ticket picks must fit inside that budget.

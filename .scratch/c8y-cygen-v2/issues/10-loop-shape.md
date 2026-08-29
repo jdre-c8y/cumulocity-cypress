@@ -2,7 +2,7 @@
 
 Type: grilling
 Status: open
-Blocked by: 02
+Blocked by: — (02 resolved)
 
 ## Question
 
@@ -46,3 +46,25 @@ Resolve:
 Note the interaction with [Can iterations replay against recorded traffic?](04-replay-and-determinism.md):
 if replay works, the `run Cypress` stage stops needing a tenant, which changes what a
 boundary costs. Take that answer into account if it has landed.
+
+---
+
+## Constraints from ticket 02 (ground truth)
+
+Ticket 02 fixed several of this ticket's inputs:
+
+- **Probe and spec are one IR, two compiler back-ends.** Probe mode dumps where spec mode
+  asserts. So a "gather ground truth" phase is not a different program — it is the same
+  program, less finished. This shrinks the space of plausible loop shapes considerably.
+- **A probe turn is a whole Cypress run**, not a millisecond CDP call. Sequential probes
+  are the dominant latency term, and ticket 02 pre-registered a tripwire: **more than ~3
+  probe runs to reach a complete facts set on any benchmark scenario reopens the
+  Cypress-probe decision.** This ticket's loop shape is what determines whether that
+  tripwire fires.
+- **Facts are an ephemeral, cached build artifact** keyed by (route, precondition),
+  gitignored. **Open question this ticket inherits: what invalidates a cache entry?** A
+  new tenant, a redeployed app, a changed precondition, elapsed time — and whether a stale
+  entry is detectable at all without re-probing.
+- **Healing needs a reachable tenant** under the ephemeral-facts decision, unless ticket
+  04's replay research says otherwise. The "what does a session boundary cost" question in
+  this ticket therefore depends on ticket 04, which is still unfired.

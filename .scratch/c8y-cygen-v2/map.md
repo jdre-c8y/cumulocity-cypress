@@ -35,7 +35,8 @@ applications and plugins, using ground truth harvested from the running applicat
 - **Packaging:** v2 is its own workspace package `packages/c8y-cygen/`. It consumes
   `cumulocity-cypress`, `c8yctrl` and `c8ypact` through their **public APIs** and must
   not modify them.
-- **Targets:** `Cumulocity-IoT/cumulocity-ui` (246 hand-written oracle specs) *and*
+- **Targets:** `Cumulocity-IoT/cumulocity-ui` (200 hand-written e2e specs; 154 once the
+  46 documentation-screenshot ones are excluded) *and*
   Cumulocity UI **plugins**, e.g. `Cumulocity-IoT/c8y-ai-agents`. Plugins are loaded
   into a host app declaratively via `?remotes={"pkg":["Module",...]}` and use
   `ngx-components` from cumulocity-ui.
@@ -82,20 +83,56 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   schema and linter — one capability addition silently cut schema coverage 3->2 during the
   prototype. Prototype: branch `prototype/03-emission-target` (`171af62`).
 
+
+- [Ground truth: where does it come from, and what must go through the UI?](issues/02-ground-truth-and-setup-path.md) —
+  **Ground truth is two substances, not one.** *Surface* (what's on the page) is dumped
+  deterministically and never costs a model turn; *reachability* (how you got there) is
+  answered from a committed index mined from the repo's 154 existing specs, then by
+  residual agentic exploration only. v1 paid an LLM turn for both — half its browser tool
+  surface was pure dumping.
+  **One runtime: Cypress.** The harvester is a *probe spec* compiled from the **same IR**
+  as the output through a second back-end, so what the tool verifies is what it ships.
+  Standalone Playwright is out — v1's 144-line bespoke auth session was a fidelity gap, and
+  a Playwright harvester structurally cannot run a blessed `cy.*` setup move. Facts leave
+  via our own `c8y:cygen:facts` task and are an **ephemeral cached artifact**, not
+  committed. `c8yctrl` leaves acquisition entirely; its value collapses to replay
+  (ticket 04). The model is shown a **candidate table**, never DOM, under the invariant
+  *no selector may enter the IR unless a probe observed it*.
+  **The setup/SUT line is not principled — it is mechanical, in three parts:** setup is
+  *enumerated* by a per-repo blessed vocabulary, not inferred; that vocabulary is closed at
+  generation time (no blessed move ⇒ click through the UI, or propose one to human review;
+  `cy.c8yclient` is never blessed); and fabrication must be *anchored* — a `stub` body
+  comes from a blessed helper or by recorded mutation of an observed response, never
+  invented. **The risk binds at exactly one place, the unanchored `stub`**, contained by
+  the anti-gaming invariant that *no Expected Outcome may be satisfied by an assertion
+  whose value traces to a `stub` in the same `it()`* (spies stay legal). `cy.intercept`
+  splits into three IR verbs — `stub` / `spy` / `sync` — because a wrong `sync` is flaky
+  but a wrong `stub` passes against a fiction. State: **always establish; reset only your
+  own footprint**, matching the library's own create/delete pairings.
+  Cost consequence: **the blessed vocabulary is the primary cost lever in the design.**
+  Pre-registered tripwire: >~3 probe runs for one benchmark scenario reopens the
+  Cypress-probe decision.
+
 ## Not yet specified
 
 In scope, but not yet sharp enough to ticket. Graduates as the frontier advances.
 
 <!-- graduated to tickets by the emission-target decision:
      Loop shape -> issues/10-loop-shape.md
-     Heal granularity -> issues/11-heal-granularity.md -->
+     Heal granularity -> issues/11-heal-granularity.md
+     new ticket raised by the ground-truth decision (not from fog):
+     Probe mode -> issues/12-probe-mode-compiler.md -->
 
 - **Cost predictability.** Pre-run estimate, hard budget ceiling, visible per-turn
   progress, distinguishing productive exploration from a stuck loop. v1 silently
   exhausted a 50-turn budget three times with no diagnostic signal. Depends on loop
-  shape.
+  shape. Sharpened by the ground-truth decision: cost is now dominated by two countable
+  units — probe runs and residual reachability turns — and the blessed setup vocabulary
+  is the lever that moves both.
 - **Autonomy handoff UX.** What the structured human-assist path actually presents, and
-  how a human's answer re-enters the loop.
+  how a human's answer re-enters the loop. The ground-truth decision gave it a first
+  concrete trigger — "no blessed setup move exists for this precondition; approve one?" —
+  but the general shape still depends on loop shape.
 - **Agent runtime and prompt-cache strategy.** Anthropic Tool Runner (v1) vs. Agent SDK
   vs. Claude Code subagents; cache-breakpoint TTL. v1's 1-hour TTL fix was never
   empirically re-validated — treat as an unconfirmed hypothesis.
