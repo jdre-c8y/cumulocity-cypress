@@ -29,3 +29,21 @@ Three v1 gaps, each observed:
 
 Also settle: does a generation run touch the target repo's git state at all (branch,
 commit, leave dirty), or only write files and let the human handle version control?
+
+---
+
+## Added by tickets 02 and 10
+
+Two new artifacts now need a location and lifetime policy, beyond the emitted spec:
+
+- **The facts cache** (ticket 02, `Q16(a)`): ephemeral, gitignored, keyed by tenant URL,
+  app/plugin version, and the establishing IR prefix, with a TTL backstop. Where it lives,
+  whether it is shared between developers, and when it is swept.
+- **The attempt log** (ticket 10, `Q7(b)`): append-only, one entry per iteration, written
+  by stateless sessions. It is also the audit trail and the human-assist packet, so it
+  probably outlives a run even though the facts do not.
+
+Also inherited from ticket 02's `Q7(c)`: the generated spec resets **only state it created
+itself**, per `it()`. Tenant-data teardown is therefore bounded to the blessed setup
+vocabulary rather than being an open-ended cleanup problem — but abandoned runs that failed
+partway can still leave that footprint behind, which is this ticket's problem.

@@ -113,6 +113,22 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   Pre-registered tripwire: >~3 probe runs for one benchmark scenario reopens the
   Cypress-probe decision.
 
+- [Loop shape: one agent session, or separated phases?](issues/10-loop-shape.md) —
+  Neither: **one loop, one artifact, one kind of turn.** The model's only stage is *author
+  or refine the IR*; compile is deterministic, the Cypress run needs no model. "Gather
+  ground truth" is not a phase — it is an early iteration compiled in probe mode because
+  the IR did not yet lint. **The linter is the stop condition**: an under-probed IR is
+  unlinttable by construction, so "am I done gathering?" is a free local check.
+  **Sessions are stateless and fresh**, reading IR + facts + diagnostic + an **append-only
+  attempt log** from disk — the log is load-bearing, since without it fresh sessions
+  oscillate. Corrects this ticket's own premise: prompt caching is **prefix-keyed, not
+  session-keyed**, so a boundary costs only accumulated conversation, never the expensive
+  static preamble. **Budget is denominated in Cypress runs** — the only metered operation —
+  capped at **≤3 probe runs, ≤6 total**, which makes ticket 02's tripwire operational
+  instead of aspirational. On failure: **patch from the diagnostic first, re-probe on the
+  second failure.** One model throughout until the benchmark has a baseline. Assist fires
+  at **four named trip conditions**, never at budget exhaustion alone.
+
 ## Not yet specified
 
 In scope, but not yet sharp enough to ticket. Graduates as the frontier advances.
@@ -121,21 +137,16 @@ In scope, but not yet sharp enough to ticket. Graduates as the frontier advances
      Loop shape -> issues/10-loop-shape.md
      Heal granularity -> issues/11-heal-granularity.md
      new ticket raised by the ground-truth decision (not from fog):
-     Probe mode -> issues/12-probe-mode-compiler.md -->
+     Probe mode -> issues/12-probe-mode-compiler.md
+     graduated to tickets by the loop-shape decision:
+     Autonomy handoff UX -> issues/13-assist-handoff.md
+     Agent runtime and prompt-cache strategy -> issues/14-agent-runtime.md -->
 
-- **Cost predictability.** Pre-run estimate, hard budget ceiling, visible per-turn
-  progress, distinguishing productive exploration from a stuck loop. v1 silently
-  exhausted a 50-turn budget three times with no diagnostic signal. Depends on loop
-  shape. Sharpened by the ground-truth decision: cost is now dominated by two countable
-  units — probe runs and residual reachability turns — and the blessed setup vocabulary
-  is the lever that moves both.
-- **Autonomy handoff UX.** What the structured human-assist path actually presents, and
-  how a human's answer re-enters the loop. The ground-truth decision gave it a first
-  concrete trigger — "no blessed setup move exists for this precondition; approve one?" —
-  but the general shape still depends on loop shape.
-- **Agent runtime and prompt-cache strategy.** Anthropic Tool Runner (v1) vs. Agent SDK
-  vs. Claude Code subagents; cache-breakpoint TTL. v1's 1-hour TTL fix was never
-  empirically re-validated — treat as an unconfirmed hypothesis.
+- **Cost estimation.** Loop shape answered the *control* half — budget denominated in
+  Cypress runs, ≤3 probe / ≤6 total, with legible per-run progress. What remains is the
+  *prediction* half: estimating a scenario's cost before running it, so a human can
+  decide whether it is worth attempting. That needs benchmark data, which does not exist
+  yet — nothing has ever been scored.
 - **Deliverable assembly.** Final structure and location of the spec document itself.
 
 ## Out of scope

@@ -38,3 +38,22 @@ report the number.
 
 Prototype against B0 (cheapest, single page) and B4 (plugin, no blessed setup library,
 state-dependent labels) — the two ends of the range.
+
+---
+
+## Constraints from ticket 10 (loop shape)
+
+- **The linter is the stop condition (`Q8(b)`).** Probe mode is not asked "have you
+  gathered enough?" — the spec IR simply will not lint until every step's selector traces
+  to an observed candidate-table row and every Expected Outcome maps to a row that could
+  satisfy it. That places a requirement on this ticket: **probe mode must make "what is
+  still missing" legible**, so a session can author the next probe IR from the gap rather
+  than by guessing.
+- **The budget is denominated in Cypress runs**, capped at **≤3 probe runs** and **≤6 runs
+  total** per scenario. The ≤3 cap is ticket 02's pre-registered tripwire made
+  operational, so this ticket must count and report probe runs per benchmark scenario —
+  exceeding it reopens ticket 02's Q6.
+- **Probe and spec compile from one IR and the model chooses the back-end per iteration**
+  (`Q1(b)`). There is no phase transition to design; there is a compile-time flag and a
+  prompt that has to make the choice obvious. A confused model compiling the wrong back-end
+  wastes a run, which is the main prompt-level risk this ticket should probe for.
