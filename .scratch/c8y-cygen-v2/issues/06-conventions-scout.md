@@ -102,3 +102,17 @@ Facts ticket 02 hands this ticket for payload 3:
 Open for this ticket: whether the three payloads are one file or three, and whether the
 scout is one pass or three. Ticket 02 only fixes that they share an artifact, a review,
 and a lifetime.
+
+---
+
+## Defect found by ticket 12
+
+The style profile as prototyped emits `helperImport` for **every** `callRepoHelper` name.
+That is wrong for `cumulocity-ui`: `createDevice`, `getDeviceIdByName`, `createMockedDevice`
+and friends are **globally-registered Cypress commands** (`Cypress.Commands.add` in
+`cypress/support/commands.ts`), not module exports — they need no import at all. Only some
+helpers are importable (e.g. `cypress/support/helpers/*`).
+
+So the profile must distinguish, per helper, between **globally registered** and
+**module-imported**, and the scout has to detect which. Left unfixed in ticket 12's
+prototype deliberately, so it lands here rather than being quietly patched.

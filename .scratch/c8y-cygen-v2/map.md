@@ -129,6 +129,49 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   second failure.** One model throughout until the benchmark has a baseline. Assist fires
   at **four named trip conditions**, never at budget exhaustion alone.
 
+- [Probe mode: the second compiler back-end](issues/12-probe-mode-compiler.md) —
+  Both oracles fit in **one probe run** (cap 3); the tripwire does not fire, *structurally*.
+  The enabling idea: the IR gains a **`provisional` selector** — a fragile structural guess
+  that probe mode compiles and spec mode refuses, legal only because the probe is thrown
+  away. Without it B0 needs 2 runs and B4 needs 4. **Probe runs = the length of the
+  dependency chain of unknowns, not their number.** Resolution is **deterministic, not a
+  model judgement**: the probe records which candidate row each provisional matched, and the
+  ladder picks the selector — which *inverts* ticket 02's invariant from a check into a
+  construction, making a hallucinated selector impossible rather than detectable. An
+  ambiguous match refuses and routes to assist (a fifth trip condition). Two new verbs:
+  `collect` (always scoped) and `settle` (declared, not inferred). Probe mode strips derived
+  stubs but keeps blessed ones, so **it is always integration-shaped** — three of five
+  oracles produce tenant-free specs that cannot be generated tenant-free. Facts: one
+  document per run, entries individually cache-keyed; a probe dying partway still returns
+  what it already collected. Prototype: `prototype/12-probe-mode` (`9a31ec8`), broken-file
+  corpus 8/8. **Found by trying:** the spec back-end failed open on every probe-only
+  construct, and the IR could not express the *baseline* oracle at all — raised as
+  [Runtime values in a declarative IR](issues/15-runtime-values-in-ir.md).
+
+## Unvalidated assumptions
+
+<!-- Not part of the wayfinder template. Added because the destination is a design spec,
+     and three load-bearing numbers in it have never been measured. Each carries the
+     result that reopens its decision, which is the most a planning effort can do. -->
+
+- **≤3 probe runs per scenario.** Measured structurally only: all collect points lie on one
+  linear flow, so one run reaches them all *if every provisional selector hits*. The real
+  figure is `1 + (provisional misses)`, and the miss rate depends on how good the
+  reachability index is at seeding guesses — an index that does not exist yet. **Reopens
+  [Ground truth](issues/02-ground-truth-and-setup-path.md)'s Q6** (Cypress probe vs. the
+  Playwright hybrid) if exceeded.
+- **Cost baseline.** The benchmark has never been run against anything, v1 included — its
+  1 PASS / 1 ASSIST / 3 unattempted score is *reconstructed from the groundwork document,
+  not observed*. Every cost claim in this map is therefore relative to an unmeasured origin.
+- **One model throughout beats tiering.** Chosen in [Loop shape](issues/10-loop-shape.md)
+  because a model-tier variable would make the first benchmark numbers uninterpretable.
+  Revisit once a baseline exists.
+
+Also tracked: the IR's **verb count** is now growing on an axis ticket 03's convergence
+check was not watching. That check passed on *"oracle B4 needed 0 new verbs"* — scenario
+growth. Ticket 12 added two verbs for a new *capability*. Not a falsification, but the next
+ticket that adds a verb should say so out loud.
+
 ## Not yet specified
 
 In scope, but not yet sharp enough to ticket. Graduates as the frontier advances.

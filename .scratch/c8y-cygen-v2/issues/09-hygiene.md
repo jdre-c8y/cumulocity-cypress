@@ -47,3 +47,21 @@ Also inherited from ticket 02's `Q7(c)`: the generated spec resets **only state 
 itself**, per `it()`. Tenant-data teardown is therefore bounded to the blessed setup
 vocabulary rather than being an open-ended cleanup problem — but abandoned runs that failed
 partway can still leave that footprint behind, which is this ticket's problem.
+
+---
+
+## Facts envelope, from ticket 12
+
+[Probe mode](12-probe-mode-compiler.md) settled the shape of the facts artifact this ticket
+must find a home for:
+
+- **One document per probe run, with each collect entry individually cache-keyed.** Per-run
+  keying discards facts for steps 1–8 when step 9 changes — facts already paid for that did
+  not change. The key per entry is ticket 10's (tenant URL, app version, establishing IR
+  prefix), where the prefix simply *is* the steps preceding that collect.
+- **A probe that dies partway still returns everything collected before the failure**, so
+  the document must be valid when incomplete. Whatever sweeps these files cannot assume a
+  well-formed, finished run.
+- **Probe specs are throwaway and must never be committed.** They are compiled, run, and
+  discarded; only facts survive. Where they are written matters — a stray probe spec left in
+  a target repo's `cypress/e2e/` would be picked up by that repo's own test run.

@@ -47,3 +47,23 @@ Resolve:
   and is that automatic or a separate reviewed commit?
 
 Audience is team adoption, so this is an adoption blocker, not polish.
+
+---
+
+## Fifth trip condition, from ticket 12
+
+[Probe mode](12-probe-mode-compiler.md) added a fifth condition to the four ticket 10
+named, and it is the cheapest of the five:
+
+5. **An ambiguous provisional selector.** The probe's structural guess
+   (`{ tag: button, text: 'OK' }`) matched more than one element. Because ticket 12 made
+   selector resolution *deterministic* — the probe records which element it touched and the
+   ladder picks the selector — an ambiguous match would silently become a **committed
+   selector for an element the model never meant**. So resolution refuses above a match
+   count of one.
+
+This one is worth designing for specifically, because it is the clearest case where assist
+beats autonomy on pure economics: *"three buttons say OK, which did you mean?"* is answered
+by a human in two seconds and guessed at by a model for four dollars. It also comes with
+its own answer shape — a choice among enumerated candidate rows, not free text — which may
+argue for a different packet than the other four conditions.

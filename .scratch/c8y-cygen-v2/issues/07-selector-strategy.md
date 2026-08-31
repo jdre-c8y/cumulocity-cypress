@@ -95,3 +95,27 @@ the default.
 Note the interaction with ticket 02's falsification criterion: second-state re-observation
 costs a probe run, and the criterion reopens the Cypress-probe decision at more than ~3
 probe runs per scenario. Whatever trigger this ticket picks must fit inside that budget.
+
+---
+
+## Requirement from ticket 12 (probe mode)
+
+[Probe mode](12-probe-mode-compiler.md) made selector resolution **deterministic**, and that
+lands a hard requirement on this ticket.
+
+The probe records **which candidate row each provisional selector actually matched** — it
+holds the element at the moment it acts on it, so this costs nothing. The ladder then picks
+that row's best available selector **mechanically, with no model in the loop**.
+
+Consequences for this ticket:
+
+- **The ladder is now executable code, not guidance.** It must produce a single answer from
+  one candidate row, deterministically, with a defined tie-break.
+- **Ticket 02's invariant inverts.** A resolved selector is *derived from* facts rather than
+  *asserted against* them, so a hallucinated selector becomes impossible rather than merely
+  detectable. The ladder is what carries that guarantee.
+- **The row must carry a stable identity**, so a provisional's match can be recorded now and
+  resolved later, across a stateless session boundary.
+- **Match count is part of the contract.** Ticket 12 refuses to resolve a provisional that
+  matched more than one element, routing to assist instead. The row set therefore has to
+  support counting matches, not just listing candidates.
