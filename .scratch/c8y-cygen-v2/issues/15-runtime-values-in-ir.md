@@ -58,3 +58,34 @@ Also carried over from ticket 12 and unfixed: the style profile emits `helperImp
 `createDevice` / `getDeviceIdByName`, which are globally-registered Cypress commands
 needing no import. That is a [Conventions scout](06-conventions-scout.md) defect, noted
 there.
+
+---
+
+## Added by ticket 07 (selector ladder)
+
+**Cypress aliases are a runtime binding the IR cannot express, and they are not rare.**
+
+The corpus study in [Selector ladder](07-selector-strategy.md) found **241** literals across the
+two target repos that are not selectors at all:
+
+```ts
+cy.get('c8y-data-grid--row-in-data-grid').first().as('rowInDataGrid');
+cy.get('@rowInDataGrid').find('button').click();     // <- refers to a bound subject
+```
+
+`@rowInDataGrid` names a subject bound earlier in the same test. There is no candidate row for
+it, no rung that could produce it, and the ladder has nothing to say about it. B2 — a mandatory
+oracle — uses three (`@dataPointsListScroll`, `@auditLogs`, `@rowInDataGrid`).
+
+This is the same shape as this ticket's `captures` question, and it should be answered with it
+rather than separately:
+
+- An alias is a **scope change with a name**, and it outlives the `.then()` nesting that `captures`
+  introduces. Does one concept cover both, or are they genuinely two?
+- The ladder's invariant is *no selector may enter the IR unless a probe observed it*. An alias
+  reference bypasses that check by construction — it names a subject, not an element. What
+  replaces the guarantee?
+- `.as()` is also how the corpus does **intercept** aliases (`cy.intercept(...).as('dashboardObjects')`
+  then `cy.wait('@dashboardObjects')`). Those are already a different thing from a DOM subject
+  alias, and ticket 02 split `cy.intercept` into three verbs. Does the alias concept split the
+  same way?

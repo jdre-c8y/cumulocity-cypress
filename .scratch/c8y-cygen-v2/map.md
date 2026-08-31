@@ -148,6 +148,30 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   construct, and the IR could not express the *baseline* oracle at all — raised as
   [Runtime values in a declarative IR](issues/15-runtime-values-in-ir.md).
 
+- [Selector ladder, and fingerprinting selectors across render branches](issues/07-selector-strategy.md) —
+  **The ladder is a path search, not a rung preference**: the primary key is *uniqueness*, the
+  rung order only a tie-break, capped at three parts. Humans scope even when the leaf is already
+  `[data-cy]`. A step now **declares its cardinality**, so refusal fires on a mismatch, never on
+  `>1` — without this B2 is ungeneratable, and with it v1's useless *"found 1 instead of 9"*
+  becomes *"declared 3, observed 1"*. That repricing **closes ticket 02's `Q8(c)`: no preventive
+  second-state re-observation**, which keeps ticket 12's one-probe-run claim intact.
+  A corpus study of **7,402 selectors across 211 hand-written specs** overturned the middle of the
+  charted ladder — humans use `role` 18 times and `title` 1,335 — and showed `[data-cy]` is a
+  minority rung in the **host** app too (29.2%), not only in plugins. Six rungs, a ban list
+  (`c8yicon`, `ng-*`, `:nth-child`, `[value]`, `[href]`), `[type]` as a refinement only. A
+  position is legal **only inside a repeating list**. The candidate table is **one flat table**,
+  each row carrying its own ancestor list, so the ladder never needs a tree and the model is never
+  shown a DOM; the model gets a **summary**, not the rows. Identity: a matched element is keyed by
+  **the step that matched it**, a table row by **its resolved path** — a content fingerprint was
+  rejected because the fields that would make it stable are the fields a branch change alters.
+  Result: 6 exact / 3 shorter / 1 refused on ten oracle targets; 87.5% and 93.5% corpus agreement.
+  **Found by trying:** Cypress aliases are not selectors and have no candidate row (241 in the
+  corpus, 3 in B2) — raised on [Runtime values](issues/15-runtime-values-in-ir.md); and the single
+  refusal is a **latent flake in B2's own oracle** (`cy.contains` matches a substring, and
+  `e2eSeries` is a prefix of `e2eSeries2`) — raised on
+  [Scenario authoring](issues/08-scenario-authoring-assist.md).
+  Prototype: `prototype/07-selector-ladder` (`732afd0`).
+
 ## Unvalidated assumptions
 
 <!-- Not part of the wayfinder template. Added because the destination is a design spec,
@@ -163,6 +187,13 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
 - **Cost baseline.** The benchmark has never been run against anything, v1 included — its
   1 PASS / 1 ASSIST / 3 unattempted score is *reconstructed from the groundwork document,
   not observed*. Every cost claim in this map is therefore relative to an unmeasured origin.
+- **A collect scope is wide enough to make its selectors safe.** [Selector ladder](issues/07-selector-strategy.md)
+  measures uniqueness against the *collected surface*, and the probe collects inside a `within`.
+  Three B4 targets therefore resolved *shorter* than the human wrote — correct, and cheaper, but
+  only safe if the collect scope was wide enough. A narrow scope lets the ladder confidently emit
+  a one-part selector that is ambiguous on the real page. **Reopens the collect-scope rule in
+  [Probe mode](issues/12-probe-mode-compiler.md)** if a generated spec fails on an ambiguous match
+  that the probe declared unique.
 - **One model throughout beats tiering.** Chosen in [Loop shape](issues/10-loop-shape.md)
   because a model-tier variable would make the first benchmark numbers uninterpretable.
   Revisit once a baseline exists.
@@ -170,7 +201,8 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
 Also tracked: the IR's **verb count** is now growing on an axis ticket 03's convergence
 check was not watching. That check passed on *"oracle B4 needed 0 new verbs"* — scenario
 growth. Ticket 12 added two verbs for a new *capability*. Not a falsification, but the next
-ticket that adds a verb should say so out loud.
+ticket that adds a verb should say so out loud. Ticket 07 added none — it added *properties*
+(cardinality, visibility, repeat) and one algorithm.
 
 ## Not yet specified
 

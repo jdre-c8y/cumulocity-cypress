@@ -40,3 +40,25 @@ Resolve what assistance actually looks like:
 Guard against scope creep: this ticket is about the *input document*, not about the
 generator's runtime behaviour or budget enforcement (which is fog under "Cost
 predictability").
+
+---
+
+## Added by ticket 07 (selector ladder)
+
+**A fifth hazard for the checklist, found by the ladder refusing to resolve a benchmark oracle.**
+
+*A text value that is a prefix of another text value on the same surface.*
+
+B2's own oracle contains it. It scopes with
+`cy.contains('c8y-datapoint-selector-list-item', 'e2eSeries')`, but `cy.contains` matches on a
+**substring**, and the same page holds `e2eSeries2`. The scope is therefore ambiguous, and the
+oracle only works because `cy.contains` yields the first match in DOM order and the author added
+`.first()` further down the chain.
+
+This is a scenario-design hazard, not a generator bug: the series were **named** `e2eSeries` and
+`e2eSeries2` by whoever wrote the fixture. A checklist item — *do any two things this scenario
+names share a prefix?* — costs nothing and would have caught it before a single agent turn.
+
+Note the interaction with cost signalling: the ladder refuses such a target and routes to assist,
+so a prefix collision converts directly into a human interruption. That is the checklist earning
+its keep in the currency this ticket cares about.
