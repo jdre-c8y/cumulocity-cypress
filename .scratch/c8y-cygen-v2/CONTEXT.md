@@ -54,6 +54,28 @@ A deliberately fragile guess the model writes so that one probe run can walk a f
 name precisely. Probe mode compiles it; spec mode refuses it.
 _Avoid_: placeholder, hole
 
+### Runtime values
+
+**Value builder**:
+One entry in the closed vocabulary the IR draws runtime values from — `now()`, `uniqueName()`,
+`isoTime()`. The IR holds no raw TypeScript, so a value that no builder can produce stops the run.
+_Avoid_: expression, helper function
+
+**Capture**:
+A name bound to the result of a step. One concept with three emissions: a `.then()` block for a
+value, `.as()` for a DOM subject, and nothing at all for an intercept, which is named by its step
+id. A capture names a step, never a selector.
+_Avoid_: alias, variable, binding
+
+**Anchored**:
+Every field of a fabricated body traces to the scenario contract, a capture, or a value builder —
+nothing invented. The property that makes a `stub` and a setup `request` safe.
+
+**Extractor / comparator**:
+The two closed lists an assertion is built from. An extractor says what to read off the page
+(`text`, `attribute`, `value`, `count`); a comparator says how to test it (`equals`, `includes`,
+`matches`, `withinMinutesOfNow`).
+
 ### Choosing a selector
 
 **Ladder**:

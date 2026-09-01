@@ -67,3 +67,30 @@ beats autonomy on pure economics: *"three buttons say OK, which did you mean?"* 
 by a human in two seconds and guessed at by a model for four dollars. It also comes with
 its own answer shape — a choice among enumerated candidate rows, not free text — which may
 argue for a different packet than the other four conditions.
+
+---
+
+## Added by ticket 15 (runtime values)
+
+**The trip-condition list does not grow to eight. It collapses.**
+
+Ticket 10 named four conditions and ticket 12 added a fifth (an ambiguous provisional match).
+Ticket 15 produced three more candidates — no value builder exists, no blessed setup move exists,
+and a named helper is missing from the conventions list — and then ruled that all of them are
+**one** condition:
+
+> *The IR needs a vocabulary entry that does not exist.*
+
+This ticket's own text already describes its first condition as *"the human is being asked to
+approve a new entry in the repo's setup vocabulary — a durable change that outlives this run and
+benefits every later one."* That sentence covers setup moves, value builders, comparators and
+helpers without a word changed.
+
+Consequences for this ticket:
+
+- **One packet shape** serves the whole class. It names the missing entry, the step that wanted
+  it, and what the entry would be used for — and its answer is a **commit to the conventions
+  file**, not an answer typed back into a run.
+- The growth mechanism is therefore the same in every case, which is what makes the vocabulary
+  the primary cost lever ticket 02 called it.
+- The condition count is **five**, not eight: three vocabulary conditions merged into condition 1.

@@ -116,3 +116,34 @@ helpers are importable (e.g. `cypress/support/helpers/*`).
 So the profile must distinguish, per helper, between **globally registered** and
 **module-imported**, and the scout has to detect which. Left unfixed in ticket 12's
 prototype deliberately, so it lands here rather than being quietly patched.
+
+---
+
+## Added by ticket 15 (runtime values)
+
+**Three hard requirements, not suggestions.** [Runtime values](15-runtime-values-in-ir.md) made
+the conventions file load-bearing for correctness, not just for house style. Each of these is
+something the linter must be able to check without a tenant.
+
+1. **Enumerate the repo's real Cypress commands.** Prototype 12's B0 called
+   `callRepoHelper: postEvent`. That command exists nowhere in either repo — the real oracle
+   uses `cy.request('/event/events','POST', …)`. The IR linted clean and would have failed only
+   at run time. The linter must check every `callRepoHelper` name against this list, so the list
+   must be complete and machine-readable.
+
+2. **Carry the value-builder vocabulary.** The IR holds no raw TypeScript, so every runtime value
+   comes from a closed vocabulary. The scout pass mines the repo's specs for the expressions they
+   actually use and writes the list; a human reviews and commits it. Seeding matters — in
+   `cumulocity-ui` alone, `dayjs(` appears 327 times, `Cypress._.now` 178, and
+   `Cypress._.clone`/`cloneDeep` 203. A minimal starting list would fire assist constantly, which
+   is the adoption failure [Scenario authoring](08-scenario-authoring-assist.md) warns about.
+
+3. **Declare the repo's API-setup idiom.** `cumulocity-ui` uses `cy.request` 95 times and
+   `cy.c8yclient` zero. `c8y-ai-agents` uses `cy.request` 15 times and `cy.c8yclient` **37**.
+   Ticket 15 overturned ticket 02's blanket ban on `c8yclient` on exactly this evidence: which
+   one a repo uses is a conventions fact, and emitting the wrong one fails ticket 01's house-style
+   grade in the one repo that prefers it.
+
+Also still open here, carried from ticket 12: the style profile emits `helperImport` for
+`createDevice` and `getDeviceIdByName`, which are globally-registered Cypress commands needing no
+import. Requirement 1 above would have caught this too.

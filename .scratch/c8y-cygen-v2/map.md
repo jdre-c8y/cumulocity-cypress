@@ -172,6 +172,27 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   [Scenario authoring](issues/08-scenario-authoring-assist.md).
   Prototype: `prototype/07-selector-ladder` (`732afd0`).
 
+- [Runtime values in a declarative IR: raw expressions and nesting scope](issues/15-runtime-values-in-ir.md) —
+  **The IR holds no raw TypeScript.** Runtime values come from a **closed vocabulary of value
+  builders**, by the same argument that made setup an enumerated vocabulary; an unknown builder
+  stops and asks a human. Assertions split into **extractor + comparator + operand**, each from a
+  closed list, so the vocabulary stops growing one verb per oracle. The IR stays a **flat step
+  list** — a capture binds for the rest of the flow and the *compiler* places the `.then()`
+  blocks, which keeps step ids flat and ticket 03's source map intact. Value captures, DOM
+  aliases and intercept aliases are **one concept**: a capture names a *step*, never a selector,
+  so ticket 07's invariant survives. A real `request` for setup is allowed where no helper exists,
+  but its **body must be anchored** — every field traces to the contract, a capture or a builder.
+  **Found by reading the real oracle rather than the prototype's copy:** ticket 12's
+  *"B0 now compiles to the oracle's shape"* compiles a B0 with **three of seven outcomes**, and
+  calls `postEvent` — **a helper that exists nowhere in either repo**, which linted clean because
+  nothing checks that a blessed helper is real. **B0 does not pass today.** The bar does not bend:
+  the IR grows.
+  **Corrects ticket 02:** the blanket ban on `cy.c8yclient` is superseded — the plugin repo uses
+  it 37 times and the host repo zero, so the choice is a *conventions* fact and the transferable
+  rule is anchoring, not the ban. **Simplifies ticket 13:** three new trip conditions collapse
+  into its existing first one, leaving five, not eight. Hands ticket 06 three hard requirements —
+  enumerate real helpers, carry the seeded builder vocabulary, declare the API-setup idiom.
+
 ## Unvalidated assumptions
 
 <!-- Not part of the wayfinder template. Added because the destination is a design spec,
@@ -194,6 +215,12 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   a one-part selector that is ambiguous on the real page. **Reopens the collect-scope rule in
   [Probe mode](issues/12-probe-mode-compiler.md)** if a generated spec fails on an ambiguous match
   that the probe declared unique.
+- **No scenario needs to branch on live page state.** [Runtime values](issues/15-runtime-values-in-ir.md)
+  ruled a DOM conditional out of the IR: it creates a path that never runs, so the anti-gaming rule
+  cannot prove an outcome was checked. No oracle *contract* requires one — but B2's human author
+  wrote one defensively, and the corpus branches 32 times (`if ($…)`) plus 99 `.then(($el) => …)`.
+  **Reopens** if a benchmark scenario, or a scenario a teammate actually writes, cannot be expressed
+  without one.
 - **One model throughout beats tiering.** Chosen in [Loop shape](issues/10-loop-shape.md)
   because a model-tier variable would make the first benchmark numbers uninterpretable.
   Revisit once a baseline exists.
@@ -202,7 +229,8 @@ Also tracked: the IR's **verb count** is now growing on an axis ticket 03's conv
 check was not watching. That check passed on *"oracle B4 needed 0 new verbs"* — scenario
 growth. Ticket 12 added two verbs for a new *capability*. Not a falsification, but the next
 ticket that adds a verb should say so out loud. Ticket 07 added none — it added *properties*
-(cardinality, visibility, repeat) and one algorithm.
+(cardinality, visibility, repeat) and one algorithm. Ticket 15 added one verb (`request`) and two
+closed vocabularies (value builders, extractor/comparator) — and said so.
 
 ## Not yet specified
 
