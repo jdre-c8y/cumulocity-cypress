@@ -62,3 +62,38 @@ names share a prefix?* — costs nothing and would have caught it before a singl
 Note the interaction with cost signalling: the ladder refuses such a target and routes to assist,
 so a prefix collision converts directly into a human interruption. That is the checklist earning
 its keep in the currency this ticket cares about.
+
+---
+
+## Added by ticket 04 (replay and determinism)
+
+**A sixth hazard — and the first one that costs nothing to acquire, because the host repo
+already maintains it.**
+
+*Does this scenario touch a flow the target repo has declared un-mockable?*
+
+`cumulocity-ui` tags tests with `{ tags: '@requiresBackend' }`: **134 occurrences across 57 of
+200 spec files (28.5%)**, consumed by a CI switch
+(`.github/workflows/cypress-build-pipeline-testing.yml:80-84`). It is a hand-applied,
+CI-enforced statement by the people who own those tests that the flow cannot be faked.
+
+Concentration is informative for this checklist: authentication dominates (SSO 11, users 9,
+ignore-case login 8, trusted certificate 7, login 7, CRL 5), then microservice and application
+lifecycle. `c8y-ai-agents` has no equivalent tag at all, so the signal exists in the host repo
+only.
+
+Two properties make it worth adopting:
+
+- **It is free.** No analysis, no probe run, no model turn — a grep against a file the target
+  repo already maintains. Every other hazard on this checklist is derived; this one is *read*.
+- **It is a lower bound, and should be treated as one.** No lint rule enforces the tag, so
+  absence is not evidence of mockability. A scenario touching a tagged area is a hazard; a
+  scenario touching an untagged one is merely *not known* to be.
+
+Interaction with cost signalling, which this ticket cares about: the tag marks flows where
+setup cannot be shortcut by a `stub`, so it predicts the expensive path ticket 02 named —
+clicking through the UI because no blessed move exists. This is the cheapest available
+predictor of that cost, available before a single agent turn.
+
+Acquisition belongs to the conventions scout (see ticket 04's answer, §7.1), which is where a
+per-repo, human-maintained fact of this kind is already collected.

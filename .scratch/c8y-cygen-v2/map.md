@@ -227,6 +227,43 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   `c8yclientf` calls are teardown.
   Prototype: `prototype/06-conventions-scout` (`f439eb6`), corpus 7/7, schema 7/7.
 
+- [Can iterations replay against recorded traffic instead of a live tenant?](issues/04-replay-and-determinism.md) —
+  **No. v2 heals against a live tenant.** The primitives permit replay with no library
+  modification — `{ c8ypact: { id } }` decouples a recording from the spec that made it and
+  *nothing* compares a recording's title to the current test, so a probe spec and the generated
+  spec can share one pact; a catch-all `cy.intercept("**")` records everything and can live in a
+  v2-injected support file, absent from the emitted spec. So the mechanical answer is *yes*.
+  Declined anyway. **The decisive objection is anti-gaming:** ticket 02 contained fabrication risk
+  at exactly one place, the unanchored `stub`, because a wrong stub *passes against a fiction*.
+  Replay is an unanchored stub over the whole run **and it is self-recorded** — from this tool,
+  this IR, the probe run. The invariant does not get harder to check; it goes **vacuous**. That
+  objection did not exist when the ticket was charted.
+  **Most of its value was already banked:** ticket 10 made sessions stateless (killing the
+  ticket's own prompt-cache premise — and the 5-minute TTL is configurable anyway) and patches
+  before re-probing, so few Cypress runs remain to cheapen; ticket 12 made selector resolution
+  deterministic by construction, which was v1's dominant flake. Replay insulates against *tenant*
+  flake, not tool flake.
+  **And the configuration v2 needs has zero instances in either target repo.** Two things are
+  called "pact": `apply` mode is a *live* request with the response matched after (not replay),
+  and the one genuinely tenant-free replay in CI is `cumulocity-ui`'s **component** job — one
+  Angular component in isolation, already 72 records / 2.6 MB worst case, against a full-shell
+  spec that bootstraps the shell 10–17 times per file. `c8yctrl` appears in both repos only in
+  `yarn.lock`. **`c8yclient` never replays at all.**
+  **Found by measuring rather than guessing:** the host repo already labels the live-only failure
+  class itself — `@requiresBackend`, **134 tests across 57 of 200 files (28.5%)**, CI-enforced,
+  concentrated in auth and microservice lifecycle, and a *lower* bound. Adopted as a conventions
+  fact for [Conventions scout](issues/06-conventions-scout.md) and as the first zero-cost hazard
+  prior for [Scenario authoring](issues/08-scenario-authoring-assist.md).
+  Pact matching **asserts**, overlapping the spec's own assertions on payloads and complementary
+  on DOM — so the two genres want **opposite** settings of one switch, handed to
+  [Two genres](issues/05-two-genres-one-pipeline.md).
+  **Corrects ticket 02:** `c8yctrl`'s value "collapses to replay and defers wholly to ticket 04"
+  now resolves — **`c8yctrl` leaves the design entirely.**
+  **Corrects ticket 12's framing:** *"B1, B2, B3 cannot be generated tenant-free"* stands, and
+  owes nothing — a reachable tenant is already a stated precondition of the whole design, so that
+  line reads as a defect but is only an observation.
+  Research: `research/04-replay-and-determinism` (`883e204`).
+
 ## Unvalidated assumptions
 
 <!-- Not part of the wayfinder template. Added because the destination is a design spec,
@@ -259,6 +296,13 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   wrote one defensively, and the corpus branches 32 times (`if ($…)`) plus 99 `.then(($el) => …)`.
   **Reopens** if a benchmark scenario, or a scenario a teammate actually writes, cannot be expressed
   without one.
+- **Tenant flake is not a material cost.** [Replay](issues/04-replay-and-determinism.md)
+  declined replay partly because the reliability it buys is insulation from *tenant* flake
+  specifically, and tickets 10 and 12 already hold the tool-flake margin. Nothing has measured
+  how often a live tenant is itself the cause of a failed iteration — the benchmark has never
+  been run. **Reopens the replay decision** if, once a baseline exists, tenant flake is a
+  material cause of budget exhaustion. It is the one axis replay uniquely still serves; cost is
+  not, and should not reopen it.
 - **One model throughout beats tiering.** Chosen in [Loop shape](issues/10-loop-shape.md)
   because a model-tier variable would make the first benchmark numbers uninterpretable.
   Revisit once a baseline exists.
