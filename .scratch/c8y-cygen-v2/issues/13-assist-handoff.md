@@ -94,3 +94,37 @@ Consequences for this ticket:
 - The growth mechanism is therefore the same in every case, which is what makes the vocabulary
   the primary cost lever ticket 02 called it.
 - The condition count is **five**, not eight: three vocabulary conditions merged into condition 1.
+
+---
+
+## Added by ticket 05 (two genres)
+
+**A sixth trip condition.** Ticket 15 collapsed eight candidate conditions into five;
+[Two genres](05-two-genres-one-pipeline.md) adds one back, so this ticket now designs the
+assist packet for **six**.
+
+The new one: **the IR has zero DOM steps.** That is the recognition criterion for the
+API-contract genre, which is now out of scope. It fires at **lint time**, before any probe
+run is spent — so unlike the other five it costs nothing and carries no diagnostic from a
+failed run.
+
+That makes it a different *shape* of assist from the rest, and this ticket owns whether the
+packet accommodates that:
+
+- The other five say *"I tried, here is the failing assertion and a screenshot."* This one
+  says *"I will not try, and here is why."* There is no screenshot, no failing assertion, no
+  proposed patch.
+- It has **no way back in**. The other conditions resume once the human answers. This one is
+  terminal for the scenario — the answer is "this belongs to a different effort", not
+  "here is the missing selector".
+- It is the only condition that can fire on a *well-formed* IR. The IR is valid; it is
+  simply not something v2 generates.
+
+If the packet's shape assumes a failed run, this condition breaks it.
+
+**Also relevant:** ticket 05 rejected the directory-based criterion partly because
+`global-context/globalContextWidgetDisplayModes.cy.ts` has zero `cy.get` yet is fully
+DOM-driven through an imported helper module. The equivalent hazard here is a *false*
+refusal — an IR that looks DOM-free but is not. The named accepted cost is
+`appEnablementTeam/branding.schema.cy.ts` (18 lines, 1 `cy.request`, no DOM), 1 in-scope
+host spec of 154.

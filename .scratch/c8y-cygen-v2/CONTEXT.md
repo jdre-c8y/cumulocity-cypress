@@ -12,6 +12,14 @@ Terms enter this file only when a ticket **settles** them.
 
 ### The pipeline
 
+**Genre**:
+What kind of spec is being generated. v2 has exactly one — **UI e2e**, whose ground truth is the
+rendered page. The **contract genre** (pact roundtrips, asserted by a recorded response and a
+JSON Schema) is not a second genre v2 supports: it is a separate effort, and v2 *refuses* it
+rather than skipping it. The line is drawn by IR shape — **zero DOM steps** — never by directory
+or by a human's declaration.
+_Avoid_: mode, flavour, spec type
+
 **IR**:
 The declarative document the model authors. It is the only artifact the model writes, and it is
 not code.
@@ -72,9 +80,10 @@ Every field of a fabricated body traces to the scenario contract, a capture, or 
 nothing invented. The property that makes a `stub` and a setup `request` safe.
 
 **Extractor / comparator**:
-The two closed lists an assertion is built from. An extractor says what to read off the page
-(`text`, `attribute`, `value`, `count`); a comparator says how to test it (`equals`, `includes`,
-`matches`, `withinMinutesOfNow`).
+The two closed lists an assertion is built from. An extractor says what to read — off the page
+(`text`, `attribute`, `value`, `count`) or off a response (`status`, `body.<path>`); a comparator
+says how to test it (`equals`, `includes`, `matches`, `withinMinutesOfNow`). A response is read
+by the same two lists as the page, deliberately: a schema is not an assertion here.
 
 ### Choosing a selector
 
@@ -106,7 +115,7 @@ One of the several ways a component can render itself. The same element may carr
 
 **Assist**:
 A supported outcome, not a failure: the tool stops and hands a human a specific question. Fires
-at five named trip conditions.
+at six named trip conditions.
 
 **Blessed vocabulary**:
 The closed, per-repo set of setup moves a generated spec may use. The primary cost lever in the

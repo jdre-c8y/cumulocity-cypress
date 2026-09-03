@@ -97,3 +97,23 @@ predictor of that cost, available before a single agent turn.
 
 Acquisition belongs to the conventions scout (see ticket 04's answer, §7.1), which is where a
 per-repo, human-maintained fact of this kind is already collected.
+
+---
+
+## Added by ticket 05 (two genres)
+
+**The scenario contract needs no genre field.** This ticket might reasonably have designed
+one — *"is this a UI spec or a contract spec?"* — since ticket 05 was charted asking whether
+a human or the tool decides.
+
+[Two genres](05-two-genres-one-pipeline.md) resolved that neither does: the contract genre is
+**out of scope**, and the boundary is drawn from **IR shape** (zero DOM steps) at lint time,
+never from a human's declaration. So the scenario contract stays single-genre and gains
+nothing here.
+
+**What it does gain, indirectly:** the IR can now assert on a response — two extractors,
+`status` and `body.<path>`. So an Expected Outcome may legitimately be about a response
+payload rather than the page (16 host spec files already write specs of that shape). A
+scenario whose outcomes are *all* payload-shaped will be refused as contract-genre, which is
+a hazard worth listing in this ticket's checklist: it is cheap to write and refused late-ish,
+at lint time.

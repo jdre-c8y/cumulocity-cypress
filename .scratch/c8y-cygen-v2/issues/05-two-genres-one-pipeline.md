@@ -1,8 +1,9 @@
 # UI e2e and API-contract specs: one pipeline or two?
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by: — (02 resolved)
+Assignee: jdre
 
 ## Question
 
@@ -87,3 +88,147 @@ Outcome maps to a concrete assertion" has a different meaning than it does over 
 dereferencing **relative to the pact folder** (`src/plugin/index.ts:701-750`), so one recording
 can reference fragments of another. If the contract genre generates many near-identical
 fixtures, this is the library's own answer to the duplication, and it is public API.
+
+---
+
+## Resolution
+
+**Two efforts. The API-contract genre is out of scope for v2.** v2 generates UI e2e specs
+only, and **refuses** — it does not silently try — when asked for a contract spec.
+
+### The genre boundary is not where this ticket assumed it was
+
+The ticket framed the split as *DOM assertions vs. payload assertions*. That is false, and
+measuring it is what decided the ticket:
+
+| | UI genre | contract genre |
+|---|---|---|
+| `cumulocity-ui` (200 specs, 154 in scope) | 154 | **0** — zero `c8ypact`, zero `c8yclient` |
+| `c8y-ai-agents` | 6 | 5 files, 23 `it()`, 1733 lines |
+| asserts on a response payload | **16 host files already do**, no pact involved | always |
+| makes API calls | 95 `cy.request` across 44 host files | 36 `cy.c8yclient` |
+
+Payload assertion already lives inside the UI genre. B0, the baseline oracle, does a real
+`cy.request('/event/events','POST')`. So that is not the boundary.
+
+Four things actually separate the contract genre, and only the first is what this design
+exists for:
+
+1. **Zero DOM.** Three distinct commands in 1733 lines — `cy.c8yclient`, `cy.getAuth`,
+   `cy.request`. No `cy.get`, no `cy.visit`, no selector, anywhere.
+2. **The assertion is a JSON Schema** — 12 inline blocks, one 60 lines
+   (`mcp-roundtrip.cy.ts:26-63`). Ticket 15 closed assertions to extractor + comparator.
+   A JSON Schema shares nothing with that vocabulary; it is a second assertion language.
+3. **The test is a template over a typed table** — 4 of 5 files `.forEach` over a profile
+   array typed by `@c8y/ai-types` and `../../../packages/ai-plugins/src/app/...`. The IR is
+   a flat step list for one `it()` (ticket 15). One pipeline means the IR grows templating
+   *and* imports of the product's own model types.
+4. **Pact matching is the oracle** — the opposite switch setting from the UI genre
+   (ticket 04).
+
+### Why "one pipeline" was declined
+
+Nine resolved tickets of machinery, and the contract genre uses almost none of it. Probe
+mode (12), the selector ladder (07), the candidate table, and the *surface* half of ground
+truth (02) are wholly inapplicable — there is nothing to probe and nothing to rank.
+
+The decisive structural objection is narrower and worse: **ticket 10's stop condition does
+not exist in this genre.** "The linter is the stop condition; an under-probed IR is
+unlinttable by construction" is a *probe* property. With nothing to probe there is no free
+local check for *am I done gathering?*, and the loop loses the property that makes it
+terminate cheaply.
+
+Set against that, the addressable surface is **23 `it()`s in one of two target repos**,
+against 160 UI specs — for a genre that by the §1 motivation *needs no eyes*, which is the
+one thing this design exists to supply. The ticket's own suspicion was right: the expensive
+machinery is pure overhead here.
+
+### What v2 keeps, because refusing is a safety property
+
+**Refusal is explicit, and it is a sixth assist trip condition** — not silence. If v2 is
+pointed at a contract spec and tries anyway, it emits a spec whose oracle is a recording it
+just made itself. That is exactly the unanchored-stub failure
+[ticket 04](04-replay-and-determinism.md) declined replay over: *it passes against a
+fiction*. Silence would reintroduce the risk the map already paid to close.
+
+**The recognition criterion is IR shape, not directory.** An IR with **zero DOM steps** is
+refused at lint time — free, at exactly the place ticket 10 put the stop condition, and it
+catches a contract spec written anywhere. The `contracts/` directory override from
+[ticket 06](06-conventions-scout.md) is kept as an *optimisation only*: it refuses early,
+before a probe run is spent. It is not the rule, because a per-repo config entry misses a
+contract spec written outside that directory.
+
+A lexical rule was rejected for a measured reason:
+`global-context/globalContextWidgetDisplayModes.cy.ts` has **zero `cy.get`** and is
+nonetheless a fully DOM-driven spec — every selector lives in an imported
+`globalContextHelpers` module. A file-level grep misclassifies it; an IR-shape check cannot.
+
+**Named cost of the rule:** it refuses `appEnablementTeam/branding.schema.cy.ts` — 18 lines,
+one `cy.request`, no DOM — a real, in-scope host spec. Accepted: 1 of 154, and a spec with
+nothing to look at belongs to the deferred effort.
+
+### Two decisions the UI genre gained on the way
+
+**Response assertions enter the IR, narrowly.** 16 host spec files already assert on a
+`cy.request` response with no pact involved; ticket 15 legalised `request` as a *setup* verb
+but said nothing about asserting on what comes back. Without this, that pattern is
+ungeneratable host-repo work. Two new **extractors** — `status` and `body.<path>` — on
+ticket 15's existing closed list. Not a new assertion language, and explicitly not JSON
+Schema.
+
+**Emitted UI specs are inert to pact matching.** Ticket 04 found pact matching asserts and
+fails tests automatically when `mode() === "apply"`. In a generated UI spec that is a second,
+invisible assertion layer the model did not author and cannot diagnose. v2's emitted specs
+carry `{ c8ypact: { ignore: true } }` — local to the file, constraining no target repo's
+config. Neither repo runs the UI genre in `apply` mode today, so this is prevention.
+
+### The anti-gaming guardrail transfers unchanged, with nothing added
+
+The ticket's third sub-question. Ticket 02 phrased the invariant over *values*, never over
+the DOM: *no Expected Outcome may be satisfied by an assertion whose value traces to a
+`stub` in the same `it()`*. A response assertion on a stubbed intercept traces to the stub
+and is already banned; one on a live `cy.request`/`c8yclient` is live and safe by
+construction. The operand has an anchor already available — **the probe already records
+responses**, which is what ticket 02's *"recorded mutation from an observed response"* was
+built on (`12-probe-mode-compiler.md:31`). No new rule.
+
+### The benchmark gains nothing; it stays at five
+
+Both new holes are **lint verdicts, not generation outcomes**, so an oracle is the wrong
+instrument even if it were free. They go to the broken-file regression corpus that ticket 03
+mandated and tickets 12 (8/8) and 06 (7/7) already run: feed an IR with zero DOM steps,
+assert refusal; feed a response assertion, assert it compiles. No tenant, no model, no probe
+run. The pass bar is untouched, and `mcp-roundtrip.cy.ts:12` is dropped as a candidate
+oracle.
+
+Measured on the way: **none of the five oracles asserts on a response payload.** B2's four
+response assertions are at `cockpitWidgets.cy.ts:154` and `:1333`, not in its oracle at
+`:1687`. So the capability added above is unexercised by the benchmark — which is precisely
+why it needs the corpus rather than an oracle.
+
+### Answers to the four sub-questions as posed
+
+1. *Degenerate case, or separate tool?* — **Neither. A separate effort.** Not a browser
+   phase that can be skipped: three of the four distinguishing features are additions to the
+   IR, not subtractions from the pipeline.
+2. *Who decides the genre?* — **Neither the human nor a directory: the IR's own shape, at
+   lint time.** Zero DOM steps is the criterion.
+3. *Does anti-gaming transfer?* — **Unchanged for the genre that survives; moot for the one
+   ruled out.**
+4. *Does the benchmark need contract oracles, and does the bar change?* — **No, and no.**
+
+### Corrections and hand-offs
+
+- **Corrects the map's charting note.** *"Genre scope: both UI e2e specs and
+  API-contract/pact roundtrip specs are in scope"* is overturned. It was listed under
+  *settled during charting, do not re-litigate*; this ticket was created to decide exactly
+  it, and its own text invited the two-efforts answer.
+- **Corrects ticket 06.** Its finding *"`contracts/` must deny the `uniqueName` builder, or
+  the spec passes its first run and fails every one after"* is now dead as an example —
+  v2 never generates into `contracts/`, so that denial never fires. The **conclusion**
+  survives intact and gains a better case: directory overrides are load-bearing, and the
+  entry now carries a *not-generatable* flag instead.
+- **Hands ticket 13 a sixth trip condition** (refuse: no DOM steps in the IR). Ticket 15
+  collapsed eight to five; this makes six.
+- **Verb-count discipline** (the map asks each ticket to say so out loud): this ticket adds
+  **zero verbs**. It adds **two extractors** to an existing closed list, and one lint rule.

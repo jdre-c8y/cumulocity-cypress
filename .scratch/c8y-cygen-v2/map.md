@@ -50,8 +50,9 @@ applications and plugins, using ground truth harvested from the running applicat
   tag -> semantic role/label -> text content -> structural walking — picking the most
   robust selector actually available. `[data-cy]` coverage is *not* guaranteed: it
   exists on `ngx-components` elements but frequently not on a plugin's own components.
-- **Genre scope:** both UI e2e specs *and* API-contract/pact roundtrip specs are in
-  scope.
+- ~~**Genre scope:** both UI e2e specs *and* API-contract/pact roundtrip specs are in
+  scope.~~ **Overturned** by [Two genres](issues/05-two-genres-one-pipeline.md), the ticket
+  charted to decide it. v2 generates **UI e2e only** and refuses the contract genre.
 - **Scenario authoring assistance is in scope** — scenario design was v1's single
   biggest realised cost lever.
 - **Precondition:** a reachable tenant with the app/plugin **already deployed**. v2
@@ -264,6 +265,41 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   line reads as a defect but is only an observation.
   Research: `research/04-replay-and-determinism` (`883e204`).
 
+- [UI e2e and API-contract specs: one pipeline or two?](issues/05-two-genres-one-pipeline.md) —
+  **Two efforts. The contract genre is out of scope**, and v2 **refuses** rather than trying.
+  The ticket's own framing was wrong: *payload vs. DOM* is not the boundary — **16 host spec
+  files already assert on a `cy.request` response** with no pact involved, and B0 does a real
+  `cy.request` POST. What actually separates the genre is **zero DOM** (three commands in 1733
+  lines), a **JSON Schema** as the assertion (12 inline blocks, one 60 lines), a **template over
+  a typed profile table** importing the product's own model types, and pact as the oracle. Three
+  of those four are *additions* to the IR, not a skippable browser phase.
+  **The decisive objection is that ticket 10's stop condition does not exist here** — "an
+  under-probed IR is unlinttable by construction" is a *probe* property, and with nothing to
+  probe the loop loses its free "am I done?" check. Set against **23 `it()`s in one of two
+  repos** (the host repo has **zero** — no `c8ypact`, no `c8yclient`) against 160 UI specs, for
+  a genre that by the §1 motivation needs no eyes.
+  **Refusal is a safety property, not tidiness:** a silently-attempted contract spec is scored
+  by a recording v2 just made itself — ticket 04's unanchored stub, passing against a fiction.
+  Criterion is **IR shape — zero DOM steps, refused at lint time**, not the directory; a
+  measured reason, since `globalContextWidgetDisplayModes.cy.ts` has zero `cy.get` and is fully
+  DOM-driven through an imported helper module, so any lexical rule misclassifies it. Ticket
+  06's `contracts/` override survives as an early-refusal optimisation. Named cost: this refuses
+  `branding.schema.cy.ts`, 1 real in-scope host spec of 154.
+  **Two gains for the surviving genre:** response assertions enter the IR **narrowly** — two
+  extractors (`status`, `body.<path>`) on ticket 15's closed list, explicitly not JSON Schema —
+  without which 16 host files' pattern is ungeneratable; and emitted specs carry
+  `{ c8ypact: { ignore: true } }` so ticket 04's auto-asserting pact layer cannot fail a spec on
+  payload drift the model never authored.
+  **Anti-gaming transfers unchanged, nothing added** — ticket 02 phrased it over *values*, not
+  the DOM, and the probe already records responses. **Benchmark stays at five**: both new holes
+  are *lint verdicts, not generation outcomes*, so they go to the broken-file corpus, not an
+  oracle. Measured on the way: **no oracle asserts on a response payload** (B2's four are at
+  `:154`/`:1333`, not its oracle at `:1687`). Adds **zero verbs**, two extractors, one lint rule.
+  **Hands ticket 13 a sixth trip condition.** **Corrects ticket 06:** its `uniqueName` denial in
+  `contracts/` is dead as an example — the conclusion that directory overrides are load-bearing
+  survives, now carrying a *not-generatable* flag.
+
+
 ## Unvalidated assumptions
 
 <!-- Not part of the wayfinder template. Added because the destination is a design spec,
@@ -347,6 +383,15 @@ Ruled beyond this destination. Does not graduate; returns only as a fresh effort
   Genuinely valuable and closer to the real developer loop, but it adds a build
   orchestration surface to a tool that has not yet proven it can reliably write one
   spec. Bolt-on-able later without redesign.
+- **The API-contract / pact roundtrip genre.** Ruled out by
+  [Two genres](issues/05-two-genres-one-pipeline.md) — the ticket charted to decide it. It
+  needs no eyes, which is the one thing this design supplies; it would grow the IR a second
+  assertion language (JSON Schema), test-templating over a data table, and product-type
+  imports; and it removes ticket 10's stop condition. Its whole surface is 23 `it()`s in one
+  of two target repos. A **follow-up effort**, like `[data-cy]` below — not a resumption.
+  v2 does not merely skip it: it **refuses**, because attempting it silently scores a spec
+  against a recording v2 made itself.
+
 - **Non-Cumulocity repos / arbitrary unknown conventions.** The target set is Cumulocity
   UI apps and plugins built on `ngx-components`. Generalising further before the tool
   works reliably on known conventions makes the design abstract and unfalsifiable.
