@@ -110,7 +110,27 @@ at five named trip conditions.
 
 **Blessed vocabulary**:
 The closed, per-repo set of setup moves a generated spec may use. The primary cost lever in the
-design.
+design. One of three sets a repo has, and the only one a human curates: *available* is every
+command that is registered, *blessed* is what the tool may use, *idiomatic* is what humans
+there actually write. A move can be available and unblessed, or blessed and unidiomatic.
+_Avoid_: whitelist, allowed commands
+
+**Conventions file**:
+The reviewed, committed, per-repo artifact the scout writes and every later run reads. Lives in
+the target repo. Holds the blessed vocabulary, the value builders, the API-setup idiom and the
+call shapes — never quote style or indent, which the repo's own formatter already owns.
+_Avoid_: style profile, house style file
+
+**Reachability index**:
+The *generated* companion to the conventions file: proven navigation sequences mined from a
+repo's existing specs. A cache, not a reviewed artifact, because it is read as priors and
+always verified live. Kept separate because a stale entry here costs one probe run, where a
+stale entry in the conventions file ships.
+
+**Binding**:
+How a blessed move reaches the emitted spec — `global` (a registered Cypress command, needing
+no import), `import` (a module export), or `inline` (defined in a spec body and never exported,
+so its source must be emitted).
 
 **Attempt log**:
 The append-only record each stateless session reads, without which fresh sessions oscillate.

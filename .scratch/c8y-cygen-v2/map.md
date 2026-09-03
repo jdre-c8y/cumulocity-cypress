@@ -193,6 +193,40 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   into its existing first one, leaving five, not eight. Hands ticket 06 three hard requirements —
   enumerate real helpers, carry the seeded builder vocabulary, declare the API-setup idiom.
 
+- [Conventions scout: what it captures, and its output format](issues/06-conventions-scout.md) —
+  **Two artifacts, not one.** Ticket 02's "all three payloads are stale in the same way" is
+  false: a stale style profile or helper list fails *silently*, a stale reachability index
+  costs one probe run and self-corrects. So a reviewed `conventions.yaml` in the **target
+  repo** (YAML + JSON Schema, matching the IR's own), and a generated reach index that is a
+  **cache**. One scout pass, two outputs, two review standards.
+  **`available` != `blessed` != `idiomatic`** — three sets, three consumers. `cumulocity-ui`
+  registers 14 library commands with **zero call sites in 190 specs**, so ticket 02's blessed
+  create/delete pairs are safe, correct and visibly foreign. The split also gives the linter
+  two verdicts: *not real* is an IR bug, *real but unblessed* is ticket 13's first trip
+  condition.
+  **The list is probed, not grepped.** Six commands `cumulocity-ui` calls cannot be placed by
+  any grep — `cy.verifyDownload` (14 uses) arrives via `require(...).addCustomCommand()`. A
+  throwaway spec dumping the registry is exact by construction and resolves the three
+  double-registrations whose signatures are incompatible. **`postEvent` now fails at lint time
+  with no tenant.**
+  **Style is mostly not ours to record:** running each repo's own prettier reproduced both
+  repos' house quoting, escaping case included, with zero profile fields — so `quote` and
+  `indent` leave the profile, and with them the class of defect that made ticket 12 emit
+  unparseable `cy.get("[data-cy="…"]")`. `binding` is **ternary** (`global`/`import`/`inline`),
+  which closes ticket 12's defect and adds the case it did not see. Directory **overrides are
+  load-bearing**: `contracts/` must *deny* the `uniqueName` builder, or the spec passes its
+  first run and fails every one after. `kind:` is **proposed** lexically (15/15) and approved
+  by a human — the one miss, `createTenant`, creates state by clicking, which no lexical rule
+  can see.
+  **Found by trying:** the reachability index **seeds nothing** in the plugin repo — 0 of 34
+  navigations use a route literal, and 2 distinct routes for 11 specs.
+  **Corrects ticket 02:** `visitAndWaitToFinishLoading` exists nowhere; it was read out of a
+  stale `@example` in the library's own `.d.ts`. Second phantom after `postEvent`, and this one
+  was *read, not invented* — so extract from registration sites only.
+  **Corrects ticket 15:** its `c8yclient` 37 is `c8yclient` 22 + `c8yclientf` 15; all 15
+  `c8yclientf` calls are teardown.
+  Prototype: `prototype/06-conventions-scout` (`f439eb6`), corpus 7/7, schema 7/7.
+
 ## Unvalidated assumptions
 
 <!-- Not part of the wayfinder template. Added because the destination is a design spec,
@@ -202,7 +236,11 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
 - **≤3 probe runs per scenario.** Measured structurally only: all collect points lie on one
   linear flow, so one run reaches them all *if every provisional selector hits*. The real
   figure is `1 + (provisional misses)`, and the miss rate depends on how good the
-  reachability index is at seeding guesses — an index that does not exist yet. **Reopens
+  reachability index is at seeding guesses. **[Conventions scout](issues/06-conventions-scout.md)
+  has now measured the seed, and in the plugin repo there is none:** 0 of 34 navigations use a
+  route literal, and resolving the bindings yields **2 distinct routes for 11 specs**. So the
+  host repo's index is rich (192 routes, 5.0 navigations each) and B4's one-probe-run figure
+  has no support from this side at all. **Reopens
   [Ground truth](issues/02-ground-truth-and-setup-path.md)'s Q6** (Cypress probe vs. the
   Playwright hybrid) if exceeded.
 - **Cost baseline.** The benchmark has never been run against anything, v1 included — its
