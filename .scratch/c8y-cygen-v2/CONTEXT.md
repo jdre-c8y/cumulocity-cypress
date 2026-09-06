@@ -10,6 +10,28 @@ Terms enter this file only when a ticket **settles** them.
 
 ## Language
 
+### Authoring
+
+**Scenario contract**:
+The markdown document a human writes to ask for a spec. Six sections — Objective,
+Preconditions, Setup, Steps, Expected Outcomes, and an optional Style. Only Expected Outcomes
+and Style are read for meaning; the rest is read by the model. Unknown sections and comments
+pass through untouched, which is where authoring annotations live.
+_Avoid_: input document, scenario doc, spec request
+
+**Hazard**:
+A property of a scenario that makes the generated spec expensive or flaky. It joins the list
+only after it is observed in a real failure, and leaves when the design removes its cause. One
+a machine can check becomes a check; one that needs human judgement becomes a question in the
+authoring interview.
+_Avoid_: pitfall, gotcha, smell
+
+**Authoring interview**:
+The questions put to a scenario's author while they write. Its output is not advice but
+*content in the scenario contract*, placed next to the step it concerns. Deliberately not a
+checklist: a checklist detects a hazard only where an expert had already annotated it.
+_Avoid_: hazard checklist, scenario lint, review pass
+
 ### The pipeline
 
 **Genre**:

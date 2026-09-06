@@ -128,3 +128,43 @@ DOM-driven through an imported helper module. The equivalent hazard here is a *f
 refusal — an IR that looks DOM-free but is not. The named accepted cost is
 `appEnablementTeam/branding.schema.cy.ts` (18 lines, 1 `cy.request`, no DOM), 1 in-scope
 host spec of 154.
+
+---
+
+## Added by ticket 08 (scenario authoring)
+
+Two things, one of them a correction to a shape this ticket assumes.
+
+**1. The packet has a second consumer: it is how the hazard list grows.**
+
+[Scenario authoring](08-scenario-authoring-assist.md) settled that **every assist event is a
+hazard candidate**, promoted to the authoring interview by a human when it recurs. The
+admission bar it set — *observed at least once in a real failure* — is satisfied by exactly one
+thing, and that thing is an assist event.
+
+So the attempt log and this packet are not only a way back into a stalled run. They are the
+evidence stream for a durable artifact, and that is a second audience with different needs: the
+first reader wants *"what do I do now"*, the second wants *"has this happened before, and to
+what class of scenario"*. Whether one record serves both, or the promotion step reads the log
+rather than the packet, is this ticket's call.
+
+This matters because v1 measured the alternative. Its `prompts/domain-notes.md` asked in its own
+header to accumulate as gotchas were found, no tool could write to it, and it received **two
+hand commits in its entire life**.
+
+**2. Two conditions now fire before any run, not one.**
+
+This ticket's §"Added by ticket 05" observes that condition 6 (zero DOM steps) is different in
+shape — it fires at lint time, so it carries no screenshot, no failing assertion and no proposed
+patch. **Condition 1 belongs in that group too.**
+
+Ticket 08 tried to move the *"no blessed setup move"* check earlier still, onto the scenario
+contract, so a human could see it before a model turn. That failed on measurement: matching
+Setup prose to a repo inventory is the same operation that made its hazard 6 unusable. The check
+stays exactly where it is — but the finding is that it fires when the **IR** first fails to lint,
+which is before any probe run is spent and therefore before any diagnostic exists.
+
+So the packet cannot assume a failed run for conditions 1 and 6. The split is not
+*five-plus-one*; it is **four post-run conditions and two lint-time conditions**, and the two
+lint-time ones differ from each other: condition 6 is terminal for the scenario, while condition
+1 is the growth mechanism for the blessed vocabulary and resumes once a human commits the entry.

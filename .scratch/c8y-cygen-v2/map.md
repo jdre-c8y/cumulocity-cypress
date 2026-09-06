@@ -300,6 +300,44 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   survives, now carrying a *not-generatable* flag.
 
 
+- [Scenario authoring: hazard checklist and cost signalling](issues/08-scenario-authoring-assist.md) —
+  **There is no hazard checklist. There is an authoring interview.** Applied to the five
+  oracles, the six candidate hazards fire on 13 of 30 cells (8 true / 5 false) — but the true
+  ones are **circular**: every well-covered cell triggers on a warning *the author had already
+  written into the prose* (`B2:67-69`, `B4:46-47`), which is the exact opposite of this ticket's
+  audience. B0 and B1 are nearly invisible to the checklist and carry real hazards anyway. So the
+  thing worth industrialising is the **annotation, not the audit**: seven questions in a skeleton
+  scenario file, answered next to the step they concern, where the model reads them.
+  **The scenario lint turns out to be empty.** Both proposed checks moved to the IR. *"Every
+  Setup line has a blessed move"* requires matching contract prose to a repo inventory — the
+  operation hazard 6 was measured failing — and is already exact as trip condition 1. *"Every
+  outcome names a concrete value"* refuses **four of five oracles** (B1 and B3 carry zero
+  literals in any outcome, 25 of 26 flagged); the missing property was never *literal* but
+  **anchored**, and the defect is in v1's text-overlap matcher, so **each IR assertion now
+  declares the Expected Outcome it satisfies** — a second duty for ticket 03's source map.
+  **Two hazards struck, one repriced.** Hazard 4 dies because the design removed its cause —
+  v1's cost was in *exploration*, which had no API shortcut; the probe now runs blessed moves.
+  Hazard 5 dies as a check: the operative relation is **substring, not prefix** (the prefix rule
+  misses B2's own case), the corpus false-positive rate is **68%** (8 true / 17 false over 25
+  pairs), and the ladder already refuses ambiguity at zero FP one probe run later. Hazard 6's
+  numbers are confirmed *exactly*, but its matcher returns **the same three files for B1, B2 and
+  B3** and zero for B4 — and **B0 itself carries the tag**, so a blocking version would refuse
+  the mandated regression floor. The fact stays in the conventions file; its consumer is the
+  style decision.
+  **Governance, which v1 measurably lacked:** admission = observed in a real failure; placement
+  = checkable → a check, judgement → the interview; only a **fact** may block, so this ticket
+  adds **no new gate**; growth = every assist event is a hazard candidate, promoted by a human
+  from the attempt log. v1's domain notes begged in their own header to accumulate and got
+  **two hand commits in their entire life**.
+  **Found by measuring:** 13 further hazard classes live in the oracle specs that none of the
+  six catch — held as candidates, not admitted, because they were seen in *specs, not failures*.
+  Two are routed out: an asserted value that is a *formatted derivative* of the data (B2's
+  contract quotes `15.34` where the fixture holds `15.34432`) becomes an interview question, and
+  **a correction to [Selector ladder](issues/07-selector-strategy.md)** — a `data-cy` bound from
+  translatable UI copy (`[attr.data-cy]="section.label"`) sits at rung 1 and survives a UI change
+  like a text selector. **The contract format is unchanged**, a fourth consecutive ticket to
+  leave it alone. Adds **zero verbs**, one IR property.
+
 ## Unvalidated assumptions
 
 <!-- Not part of the wayfinder template. Added because the destination is a design spec,
@@ -339,6 +377,14 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   been run. **Reopens the replay decision** if, once a baseline exists, tenant flake is a
   material cause of budget exhaustion. It is the one axis replay uniquely still serves; cost is
   not, and should not reopen it.
+- **The interview actually gets the annotation written.** [Scenario
+  authoring](issues/08-scenario-authoring-assist.md) rests entirely on the claim that a prompted
+  author will write down what an expert wrote unprompted — measured only in the negative, as the
+  circularity that killed the checklist. No teammate has ever been handed the skeleton.
+  **Reopens the interview's delivery** (a tool-run review pass over the finished scenario was the
+  runner-up, declined for costing a model turn) if a first scenario written *with* the skeleton
+  still fails on a hazard the interview asked about.
+
 - **One model throughout beats tiering.** Chosen in [Loop shape](issues/10-loop-shape.md)
   because a model-tier variable would make the first benchmark numbers uninterpretable.
   Revisit once a baseline exists.
@@ -367,7 +413,11 @@ In scope, but not yet sharp enough to ticket. Graduates as the frontier advances
   Cypress runs, ≤3 probe / ≤6 total, with legible per-run progress. What remains is the
   *prediction* half: estimating a scenario's cost before running it, so a human can
   decide whether it is worth attempting. That needs benchmark data, which does not exist
-  yet — nothing has ever been scored.
+  yet — nothing has ever been scored. [Scenario
+  authoring](issues/08-scenario-authoring-assist.md) narrowed it further: the free text-derived
+  signal it hoped for does not exist, because predicting cost from contract prose means matching
+  prose to a repo inventory, which was measured failing. The cheapest signal left before a model
+  turn is **the author's own interaction estimate**, asked directly.
 - **Deliverable assembly.** Final structure and location of the spec document itself.
 
 ## Out of scope
