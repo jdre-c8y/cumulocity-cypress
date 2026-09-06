@@ -338,6 +338,49 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   like a text selector. **The contract format is unchanged**, a fourth consecutive ticket to
   leave it alone. Adds **zero verbs**, one IR property.
 
+- [Hygiene: output location, abandoned attempts, and tenant-data teardown](issues/09-hygiene.md) —
+  **One working area, one deterministic output path, and a footprint known before the run
+  starts.** A generated spec lands **beside the scenario contract that asked for it** — the
+  only rule the facts permit, since the host organises specs *by team* and the plugin *by
+  capability*, and nothing derives `appEnablementTeam` from a scenario about events. That
+  makes the output path a pure function of the contract path, so a re-run **cannot** produce
+  a second file: the three-duplicate-specs bug dies structurally, not by cleanup. **The
+  contract therefore becomes a committed artifact — correcting ticket 02's "exactly two" to
+  three** — and it is load-bearing, because the IR is discarded and the contract is the only
+  durable input to a re-generation.
+  **The ticket's preferred fix is available for the probe and not for the spec.** Probe specs
+  live in `.cygen/probe/` under a `specPattern` override, structurally incapable of reaching
+  the spec tree — gap 3 closed properly. The candidate spec cannot follow: **64 of 200 host
+  specs import relatively**, to `'../../../support/helpers/…'`, so a spec compiled for its
+  final directory does not run from a scratch area, and rewriting imports on promotion would
+  ship a file different from the one verified — the thing probe mode exists to prevent. So it
+  is written at its final path and deleted unless the run ends green, with one rule covering
+  every collision: **v2 writes only to a path that is empty or carries a matching provenance
+  header** (hash, tool version, contract path).
+  **Gap 2 was misdiagnosed by its own ticket.** Exploration-had-no-teardown was a v1 fact;
+  ticket 10 abolished the phase and ticket 12 made dying partway *normal*. The real residue is
+  crash-safe teardown, solved by a **run manifest in two halves** — a static half written from
+  the IR *before anything runs*, which cannot be crashed out of, and a dynamic half appended
+  from observed `201` responses, which is the only thing that sees state created by
+  **clicking**. Unsweepable creations are reported, not leaked. **One run at a time, by lock
+  file** — forced anyway by fixed literal entity names (`e2eDevice` ×40, only 5 `Date.now()`
+  in 200 specs), and it makes crash recovery correct by construction; without it, run B
+  deletes run A's data mid-flight.
+  **Git: setup writes to the repo, runs do not.** The `.gitignore` line rides in ticket 06's
+  existing reviewed commit. **Assist keeps its file** — red, uncommitted, in the working tree,
+  because moving it breaks the imports the human needs to run it. The invariant is not "the
+  spec tree is always green" but **"v2 never leaves anything red that is committed."**
+  **Found by measuring:** `trashAssetsBeforeRuns: true` in both repos makes v2 destructive
+  *today* — it wipes the developer's own artifacts and the assist evidence a human opens
+  later — and its failure screenshots land in `cypress/snapshots/actual`, beside **38
+  committed visual-regression baselines**. Fixed by overriding the three asset folders in the
+  same config object the `specPattern` override already needs. **Attempt logs are kept in
+  full, reversing this ticket's own first answer:** sweeping green runs would destroy the only
+  cost and flake data the design will ever produce, against a baseline that does not yet
+  exist. Hands ticket 13 a packet requirement, ticket 06 a test-data-prefix field, ticket 12 a
+  probe-import rule, and ticket 14 a Cypress-invocation constraint. Adds **zero IR verbs and
+  zero contract fields**; adds one comment block to emitted specs.
+
 ## Unvalidated assumptions
 
 <!-- Not part of the wayfinder template. Added because the destination is a design spec,
@@ -385,6 +428,16 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   runner-up, declined for costing a model turn) if a first scenario written *with* the skeleton
   still fails on a hazard the interview asked about.
 
+- **Re-deriving the IR from the contract is cheap.** The whole case for discarding the IR
+  after a run, in [Hygiene](issues/09-hygiene.md) — it keeps the committed surface at three
+  artifacts and avoids a second reviewed file that drifts the moment a human edits the `.ts`.
+  Never measured. **Reopens** if [Heal granularity](issues/11-heal-granularity.md) finds
+  healing needs the original IR rather than a regenerated one.
+- **The facts TTL default.** [Hygiene](issues/09-hygiene.md) ships a TTL as a backstop only:
+  the per-entry cache key already carries tenant URL, app version and establishing IR prefix,
+  so the TTL exists solely to catch a tenant edited by hand underneath a still-valid key. The
+  default is arbitrary. **Reopens** if a stale-facts failure is ever traced to it.
+
 - **One model throughout beats tiering.** Chosen in [Loop shape](issues/10-loop-shape.md)
   because a model-tier variable would make the first benchmark numbers uninterpretable.
   Revisit once a baseline exists.
@@ -418,6 +471,8 @@ In scope, but not yet sharp enough to ticket. Graduates as the frontier advances
   signal it hoped for does not exist, because predicting cost from contract prose means matching
   prose to a repo inventory, which was measured failing. The cheapest signal left before a model
   turn is **the author's own interaction estimate**, asked directly.
+  [Hygiene](issues/09-hygiene.md) named the *data source*: attempt logs are now kept in full,
+  precisely so the first estimate has something to be built from.
 - **Deliverable assembly.** Final structure and location of the spec document itself.
 
 ## Out of scope

@@ -16,7 +16,8 @@ Terms enter this file only when a ticket **settles** them.
 The markdown document a human writes to ask for a spec. Six sections — Objective,
 Preconditions, Setup, Steps, Expected Outcomes, and an optional Style. Only Expected Outcomes
 and Style are read for meaning; the rest is read by the model. Unknown sections and comments
-pass through untouched, which is where authoring annotations live.
+pass through untouched, which is where authoring annotations live. Committed, and stored
+beside the spec it produces — it is the only durable input to a re-generation.
 _Avoid_: input document, scenario doc, spec request
 
 **Hazard**:
@@ -169,3 +170,30 @@ The append-only record each stateless session reads, without which fresh session
 **Oracle**:
 One of the five hand-picked benchmark scenarios. Four have a hand-written reference spec; the
 hard tier has none, because production never has one either.
+
+### Artifacts and cleanup
+
+**Working area**:
+The one gitignored directory in a target repo holding everything a run needs that is not
+committed — probe specs, facts, attempt logs, run manifests, and the run's own Cypress
+screenshots and videos. Inside the repo because a probe spec must be bundled by that repo's
+Cypress project.
+_Avoid_: scratch dir, temp, build dir
+
+**Provenance header**:
+The comment block an emitted spec carries: content hash, tool version, contract path. It is
+what makes one rule sufficient — a path is written only when it is empty or its header
+matches. A missing header means a human wrote the file; a stale hash means a human edited it.
+_Avoid_: banner, generated marker
+
+**Run manifest**:
+A run's tenant footprint, in two halves. The *static* half is written from the IR before
+anything runs, so it cannot be crashed out of; the *dynamic* half is appended from observed
+`201` responses, and is the only half that sees state created by clicking.
+_Avoid_: transaction log, cleanup list
+
+**Sweep**:
+Deleting a run's tenant footprint. It is the tool's own work, never emitted code, so it needs
+no blessed move and no idiom. Runs at the end of a run, at the start of one against an
+orphaned manifest, and on demand.
+_Avoid_: teardown, which is what a *spec* does to its own state
