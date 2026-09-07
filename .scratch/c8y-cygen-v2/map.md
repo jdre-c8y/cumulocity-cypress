@@ -381,6 +381,75 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   probe-import rule, and ticket 14 a Cypress-invocation constraint. Adds **zero IR verbs and
   zero contract fields**; adds one comment block to emitted specs.
 
+- [Heal granularity: what is the unit of recovery?](issues/11-heal-granularity.md) —
+  **The unit is a bounded diff on the IR, and the model never authors a selector inside it.**
+  Two rungs that differ not in *size* but in where the information comes from: rung 1 spends no
+  run and may only re-arrange facts already observed; rung 2 spends a probe run because
+  **re-probing is the only legal channel for new observation** — which is also why the patch
+  session is given the screenshot but never the DOM at failure. A patch is a **rewrite whose
+  diff is checked**, not a patch-op language: fields split into **free** (scope, index,
+  timeouts, fragment args, *inserting* a step) and **frozen** (outcome text, `satisfiedBy`,
+  extractor / comparator / operand, cardinality, a step's verb, *deleting* a step). The reason
+  is an attack generation never had — the linter proves an outcome *has* an assertion, never
+  that it is as strong as it was, and the cheapest fix to *"declared 3, observed 1"* is to
+  declare 1. **Corrects its own first answer:** the mechanics zone as first drafted let a heal
+  turn write a selector string, which re-opens the hole ticket 12 closed; so a selector is
+  **re-pointed at another observed candidate row** or **demoted to `provisional`**, costing
+  **one new IR property** — a step must name the row it derived from — and upgrading ticket 02's
+  invariant a third time, from check to construction to *verifiable link* (`selector ==
+  ladder(row)`). Escalation counts **spec runs, not steps**, because Cypress stops at the first
+  failure so one run yields one diagnostic; a partial probe is information, not a failure.
+  Oscillation is **rejected, not merely logged**. Hands ticket 13 a **seventh trip condition** —
+  *the app contradicts the scenario* — plus the attempt log's fields, in which the **rejected**
+  diffs are the evidence that the model wanted to weaken an assertion.
+  **Found by measuring** what ticket 03 assumed: Cypress's `displayError` does carry the
+  original `.ts` line (four failure kinds, including a cross-file throw and a hook), so the
+  sidecar map works — but it is the **only** structured error text there is (`attempts[]` is
+  `{ state }`, there is no `codeFrame`), its stack frames sit at the **end** of the string, and
+  v1's head-first 3000-char truncation therefore **silently deletes the source-map key on
+  exactly the largest failures**. **Does not reopen** the *"re-deriving the IR is cheap"*
+  assumption it was named as the trigger for; narrows it instead. Adds **zero verbs**, one IR
+  property, one build artifact, two linter rules.
+
+- [Autonomy handoff: the assist packet and the way back in](issues/13-assist-handoff.md) —
+  **Assist is not a pause; it is an ending, and the answer comes back as a commit.** The run
+  stops, writes what it knows, and exits. A human changes one of exactly two committed files —
+  the **conventions file** (the vocabulary condition) or the **scenario contract** (every other
+  answerable one) — and a fresh run starts. No parked state, no resume protocol, no waiting
+  process: tracing the facts-cache key through all five answerable conditions shows it **hits**
+  where the flow is unchanged (ambiguous selector, app contradicts, outcome rewritten) and
+  **misses** exactly where re-probing is required (a different navigation, a new blessed move).
+  So `Q3(b)`'s stateless sessions — the decision that *created* this ticket's "there is no
+  session waiting" problem — turn out to solve it.
+  **The seven conditions sort by evidence, not by clock**, and `CONTEXT.md`'s *"five after a run,
+  two at lint time"* is wrong — ticket 11 contradicted it inside its own paragraph. Three tiers
+  (nothing ran / a probe ran / a spec ran), and **budget exhaustion is in no tier**: it is a cap,
+  not a question, and borrows whatever tier it stopped in. So **one envelope, three shapes** for
+  seven conditions. A second, orthogonal axis governs the *ask*: **proposal** only from a closed
+  vocabulary the tool owns, **menu** only from rows the probe observed, **state only** everywhere
+  else — the tool never proposes a fact about the application.
+  **The packet is a rendering of the attempt log, not an artifact** — one store, two readers
+  (ticket 08's hazard promotion is the second), nothing new persisted. Adopts ticket 11's six log
+  fields and adds two: the trip condition and the **source map**, kept rather than recomputed, on
+  ticket 11's own don't-build-a-path-that-drifts argument.
+  **Full budget every run, no cap on repeated assists** — ticket 08's governance says only a fact
+  may block, and the map has no baseline to set a cap from. The governor is the human, and what
+  makes it work is the one thing v1 lacked: the packet prints the **cumulative cost for this
+  contract** before the human decides to spend again.
+  **The tool writes facts unasked and judgements on request:** the run appends one dated line to
+  the contract; a proposed conventions entry lands unstaged only when asked. The model **reads**
+  that history on purpose — a hazard prior, not the accumulated *reasoning* ticket 10 banned.
+  **Found by reading:** ticket 09's *"the IR does not survive the run"* is already false (ticket
+  11 put a full IR snapshot in every log entry, and ticket 09 keeps every log); its *"setup
+  writes to the repo, runs do not"* was false when written (the red spec goes to its final path
+  inside the committed tree); and **ticket 08's evidence stream is not free** — the log is
+  gitignored and per-developer, so promotion had exactly the shape that gave v1's
+  `domain-notes.md` **two commits in its entire life**. One committed line fixes it.
+  **"The application is wrong" is a first-class answer**, protected by nothing but the packet's
+  wording — ticket 11's frozen fields stop the *model* weakening a correct outcome; only the
+  wording stops the *human*. Adds **zero IR verbs and zero contract fields** (a fifth consecutive
+  ticket), two log fields, one wording requirement.
+
 ## Unvalidated assumptions
 
 <!-- Not part of the wayfinder template. Added because the destination is a design spec,
@@ -431,8 +500,20 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
 - **Re-deriving the IR from the contract is cheap.** The whole case for discarding the IR
   after a run, in [Hygiene](issues/09-hygiene.md) — it keeps the committed surface at three
   artifacts and avoids a second reviewed file that drifts the moment a human edits the `.ts`.
-  Never measured. **Reopens** if [Heal granularity](issues/11-heal-granularity.md) finds
-  healing needs the original IR rather than a regenerated one.
+  Never measured. **[Heal granularity](issues/11-heal-granularity.md) did not reopen it** —
+  within a run the IR is live on disk, and across runs a stale spec is *regenerated*, not
+  patched — but it narrowed what has to hold: only that regeneration is cheap, never that a
+  patch would have been cheaper. **Reopens** if regeneration from a contract is ever measured
+  to cost more than a run's remaining budget.
+
+- **The failing step is always recoverable from `displayError`.**
+  [Heal granularity](issues/11-heal-granularity.md) measured that Cypress reports the original
+  `.ts` line for a plain assertion, a multi-line chain, a cross-file helper throw and a hook
+  throw — but in an isolated project, never against a real target-repo spec on a live tenant,
+  and there is **no structured location field** to fall back on: one regex over one string is
+  the entire mechanism. The whole surgical-patch argument rests on it. **Reopens the source
+  map's shape** — in-code markers, rejected as tool noise in a committed spec — if a real
+  failure ever yields no parseable frame inside the emitted spec.
 - **The facts TTL default.** [Hygiene](issues/09-hygiene.md) ships a TTL as a backstop only:
   the per-entry cache key already carries tenant URL, app version and establishing IR prefix,
   so the TTL exists solely to catch a tenant edited by hand underneath a still-valid key. The
@@ -442,12 +523,29 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   because a model-tier variable would make the first benchmark numbers uninterpretable.
   Revisit once a baseline exists.
 
+- **A prose annotation in the contract is a good enough answer channel.** [Autonomy
+  handoff](issues/13-assist-handoff.md) routed four of the five answerable trip conditions
+  through prose in the scenario contract rather than a direct pick from the observed rows,
+  accepting a lossy prose -> model -> selector hop in exchange for an answer that survives to the
+  next run and the next author. Never measured: the benchmark has never been run and no human has
+  ever answered an assist. **Reopens the answer destination** for the ambiguous-selector
+  condition if a re-run *after* an assist trips the same condition again — that is the channel
+  failing, and the fallback is a structured annotation naming the observed row.
+- **The cumulative cost figure is a sufficient governor on repeated assists.** [Autonomy
+  handoff](issues/13-assist-handoff.md) gives every run the full budget and caps nothing, on
+  ticket 08's rule that only a fact may block — a count of prior assists is a policy number, and
+  **cost baseline** above says there is nothing to set it from. The substitute is visibility: the
+  packet prints what this contract has cost so far. **Reopens the cap** if a contract is ever
+  observed assisting repeatedly with that figure already in front of the human.
+
 Also tracked: the IR's **verb count** is now growing on an axis ticket 03's convergence
 check was not watching. That check passed on *"oracle B4 needed 0 new verbs"* — scenario
 growth. Ticket 12 added two verbs for a new *capability*. Not a falsification, but the next
 ticket that adds a verb should say so out loud. Ticket 07 added none — it added *properties*
 (cardinality, visibility, repeat) and one algorithm. Ticket 15 added one verb (`request`) and two
-closed vocabularies (value builders, extractor/comparator) — and said so.
+closed vocabularies (value builders, extractor/comparator) — and said so. Ticket 11 added none,
+and one property (the candidate-row reference) that it argues is forced rather than chosen. Ticket 13 added
+none, and no contract field either — the fifth consecutive ticket to leave that format alone.
 
 ## Not yet specified
 
@@ -473,6 +571,9 @@ In scope, but not yet sharp enough to ticket. Graduates as the frontier advances
   turn is **the author's own interaction estimate**, asked directly.
   [Hygiene](issues/09-hygiene.md) named the *data source*: attempt logs are now kept in full,
   precisely so the first estimate has something to be built from.
+  [Autonomy handoff](issues/13-assist-handoff.md) gave that data its first consumer: an assist
+  packet must print the **cumulative cost for its contract**, so the arithmetic over the logs
+  has to exist before any prediction is attempted.
 - **Deliverable assembly.** Final structure and location of the spec document itself.
 
 ## Out of scope

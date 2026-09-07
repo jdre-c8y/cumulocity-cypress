@@ -33,3 +33,27 @@ That shape makes the runtime choice narrower and the cache question sharper.
 Resolvable by a `/research` subagent against current Anthropic documentation plus the v1
 implementation on branch `c8y-e2e-generation-agents`. Findings go to a throwaway
 `research/agent-runtime` branch.
+
+---
+
+## Added by ticket 13 (assist handoff)
+
+Two constraints, one of which turns this ticket's fourth bullet from a question into a
+requirement.
+
+**1. No runtime may assume a process that outlives a run.**
+[Autonomy handoff](13-assist-handoff.md) made assist **terminal**: the run stops, exits, and the
+human answers by committing to the conventions file or the scenario contract. Nothing parks,
+nothing waits, and there is no resume protocol — so a runtime whose session model needs a
+long-lived supervisor to be worth its setup cost is paying for something the design never uses.
+Combined with `Q3(b)`'s stateless iterations, every session this runtime starts is short-lived
+*and* may be the last one.
+
+**2. Per-iteration cost must be recorded, not merely understood.**
+This ticket's *"what is the actual cost profile"* now has a consumer. Ticket 13 requires an
+assist packet to print the **cumulative cost across every run for this contract**, because v1's
+measured failure was not that a scenario cost $4.22 — it was that the budget was *"silently
+exhausted… three times in a row, with no visibility into why"*. That arithmetic runs over the
+attempt logs, so the runtime must surface per-iteration cost (input, cached-read, output tokens
+at minimum) in a form the log can hold. A runtime that reports cost only as an aggregate at the
+end of a session, or not at all, fails this.

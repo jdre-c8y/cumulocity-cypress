@@ -137,8 +137,30 @@ One of the several ways a component can render itself. The same element may carr
 ### Running the loop
 
 **Assist**:
-A supported outcome, not a failure: the tool stops and hands a human a specific question. Fires
-at six named trip conditions.
+A supported outcome, not a failure: the tool stops and hands a human a specific question. It
+**ends the run** — nothing waits and nothing parks — and the answer comes back as a commit to
+one of two files, the conventions file or the scenario contract, which the next run reads like
+any other input. Fires at seven named trip conditions.
+_Avoid_: escalation, pause, handoff
+
+**Trip condition**:
+One of the seven named states in which the tool stops and asks. Grouped by **evidence tier**,
+never by which one fired. Budget exhaustion is the odd one out: a cap rather than a question, it
+carries whatever the tier it stopped in already had.
+_Avoid_: failure mode, stop reason
+
+**Evidence tier**:
+What decides an assist packet's sections — whether nothing ran, a probe ran, or a spec ran.
+Three of them, which is why seven trip conditions produce three packet shapes and not seven.
+
+**Assist packet**:
+What a human reads when the tool stops. Not a stored artifact but a **rendering of the attempt
+log**, so one record serves both its readers: the human answering now, and the human deciding
+later whether a recurring stop has earned promotion to a hazard. It proposes an answer only from
+a vocabulary the tool owns, offers a menu only of rows a probe observed, and otherwise shows
+state — it never proposes a fact about the application. It always names the red spec's path, and
+names *"the application is wrong"* as a legitimate answer.
+_Avoid_: report, failure summary, handoff document
 
 **Blessed vocabulary**:
 The closed, per-repo set of setup moves a generated spec may use. The primary cost lever in the
@@ -165,11 +187,43 @@ no import), `import` (a module export), or `inline` (defined in a spec body and 
 so its source must be emitted).
 
 **Attempt log**:
-The append-only record each stateless session reads, without which fresh sessions oscillate.
+The append-only record each stateless session reads, without which fresh sessions oscillate. It
+is also the only store an assist has, the packet being a view of it. Per iteration it holds the
+IR snapshot, the changed field paths computed from the diff, the run produced, the failing step
+path, the capped diagnostic, the accept/reject verdict, the source map, and the trip condition
+if the run ended in one. The **rejected** diffs are the evidence that a model wanted to weaken
+an assertion.
 
 **Oracle**:
 One of the five hand-picked benchmark scenarios. Four have a hand-written reference spec; the
 hard tier has none, because production never has one either.
+
+### Recovering from a failure
+
+**Patch**:
+One bounded refine turn after a failed spec run. The model rewrites the IR as it always does;
+the tool diffs the result and rejects a change that reaches a frozen field. Rejection costs a
+model turn and never a run.
+_Avoid_: fix, retry, self-heal
+
+**Frozen field**:
+A field a patch may not change: *what* a step asserts, rather than *how* it finds its target.
+Outcomes, `satisfiedBy`, an assertion's extractor, comparator and operand, declared
+cardinality, an existing step's verb, and the deletion of any step. Everything else is free.
+Adding a step is never frozen — an addition cannot weaken an assertion.
+_Avoid_: intent zone, locked field, protected field
+
+**Source map**:
+What turns a Cypress failure into an IR step. A sidecar keyed by emitted line *range*, whose
+value is a step *path*, so a fragment failure says whether the bug is at the call site or in
+the body. A build artifact, kept in the attempt log so that it survives an assist.
+_Avoid_: line map, trace, back-reference
+
+**Demotion**:
+Returning a resolved selector to `provisional` so a re-probe and the ladder resolve it again.
+The only way a selector ever changes — the model re-points a step at another observed row or
+demotes it, and never writes a selector itself.
+_Avoid_: reset, unresolve, re-open
 
 ### Artifacts and cleanup
 
