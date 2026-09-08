@@ -251,3 +251,27 @@ Deleting a run's tenant footprint. It is the tool's own work, never emitted code
 no blessed move and no idiom. Runs at the end of a run, at the start of one against an
 orphaned manifest, and on demand.
 _Avoid_: teardown, which is what a *spec* does to its own state
+
+### The design effort
+
+**Design record**:
+The hand-off artifact this effort produces. Nine normative files behind one front door, in
+`packages/c8y-cygen/`, organised by the part being built and never by the order the questions
+were asked. It states the rules and links the tickets that argued them; it cites this glossary
+and the benchmark, and absorbs neither. Deliberately not called a spec — in this domain a
+**spec** is the Cypress file that spec mode emits.
+_Avoid_: spec, design spec, the spec document, handoff doc
+
+**Standing block**:
+The part of the design record that every session of the implementation effort loads, copied
+into that map's Notes. It holds the Given, the cross-cutting invariants and the tripwires — not
+a summary of the design, which is what the nine files are. Sized against the thing read
+repeatedly, not the thing read once.
+_Avoid_: preamble, header, overview
+
+**Tripwire**:
+A named result that reopens a settled decision. It is a condition to watch, never a task to
+perform, which is why it lives in the standing block and not in a backlog — an entry in a
+backlog gets marked done and stops being watched. Its opposite is a **measurement**: work with
+a result, which does belong in a backlog.
+_Avoid_: risk, caveat, open question, unvalidated assumption

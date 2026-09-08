@@ -10,6 +10,12 @@ oracle benchmark — ready to hand to a separate implementation effort that buil
 This map plans; it does not implement. Reaching the destination produces a document,
 not a working generator.
 
+**Status: deciding complete.** Sixteen tickets, sixteen resolved; the frontier and the fog are
+both empty. What remains is not a decision but one act of writing — the **design record**, whose
+shape and location [Deliverable assembly](issues/16-deliverable-assembly.md) fixed. When that
+lands in `packages/c8y-cygen/`, this map is history: it stays here, unedited, as the effort's own
+record.
+
 ## Notes
 
 **Domain.** LLM-agent-driven generation of Cypress E2E specs for Cumulocity UI
@@ -489,6 +495,33 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   **zero IR verbs and zero contract fields** (a sixth consecutive ticket), three log fields, one
   CI assertion. Research: `research/14-agent-runtime` (three files).
 
+- [Deliverable assembly: the design record's structure and location](issues/16-deliverable-assembly.md) —
+  **Nine normative files behind one front door in `packages/c8y-cygen/`, written for the sessions
+  of the next map — and the fifteen tickets stay byte-for-byte as the argument.** The reader is
+  not a human reading once; it is an agent session that loads a ~60-line standing block *every*
+  time and opens one further file. Optimise the thing read repeatedly, not the thing read once.
+  Cut by the part being built (loop first, it is the skeleton), never by the order the questions
+  were asked. **Rejected the near-free option:** re-sorting this map's Decisions-so-far is the raw
+  material, not the answer — a gist exists to let a reader judge relevance, and a builder needs
+  the rule.
+  **Fixes a word collision first:** `CONTEXT.md` already owns **spec** (the emitted Cypress file),
+  so the hand-off artifact is the **design record**.
+  **No ticket is edited** — editing them makes the record lie about when we knew what. One header
+  line each, and one `corrections.md` sorted by the *corrected* ticket, holding the two kinds that
+  leave stale text (ticket-corrects-ticket, ticket-corrects-charting-premise) and not the third
+  (a ticket correcting its own premise already states its final answer).
+  **The eleven unvalidated assumptions split in two, and the next effort owns both:** three are
+  *measurements* and become its opening backlog; eight are *tripwires* and go in the standing
+  block. A tripwire in a backlog gets ticked done and stops being watched. First measurement is
+  the free one — `messages.countTokens`, which repairs every cost figure at once — then B0 with
+  the thinnest slice that can score it. **Not a v1 baseline:** v1 is reference-only with the
+  burden of proof reversed.
+  The record cites `CONTEXT.md` and `benchmark/README.md` and absorbs neither, and it does **not**
+  propose the next map's tickets. **Written by one follow-up session reading the tickets in full**
+  — not this one, which read only the gists, and not nine parallel sessions, which cannot keep
+  ticket 14 -> 09 and ticket 15 -> 02 straight. Adds **zero IR verbs, zero contract fields**
+  (a seventh consecutive ticket) **and zero log fields**, breaking that artifact's run of three.
+
 ## Unvalidated assumptions
 
 <!-- Not part of the wayfinder template. Added because the destination is a design spec,
@@ -614,7 +647,9 @@ next ticket that adds a log field should say so out loud, on the same rule the v
 
 ## Not yet specified
 
-In scope, but not yet sharp enough to ticket. Graduates as the frontier advances.
+**Empty.** The frontier closed with
+[Deliverable assembly](issues/16-deliverable-assembly.md). Nothing architectural is left to
+decide, so no fog can graduate here.
 
 <!-- graduated to tickets by the emission-target decision:
      Loop shape -> issues/10-loop-shape.md
@@ -623,27 +658,34 @@ In scope, but not yet sharp enough to ticket. Graduates as the frontier advances
      Probe mode -> issues/12-probe-mode-compiler.md
      graduated to tickets by the loop-shape decision:
      Autonomy handoff UX -> issues/13-assist-handoff.md
-     Agent runtime and prompt-cache strategy -> issues/14-agent-runtime.md -->
-
-- **Cost estimation.** Loop shape answered the *control* half — budget denominated in
-  Cypress runs, ≤3 probe / ≤6 total, with legible per-run progress. What remains is the
-  *prediction* half: estimating a scenario's cost before running it, so a human can
-  decide whether it is worth attempting. That needs benchmark data, which does not exist
-  yet — nothing has ever been scored. [Scenario
-  authoring](issues/08-scenario-authoring-assist.md) narrowed it further: the free text-derived
-  signal it hoped for does not exist, because predicting cost from contract prose means matching
-  prose to a repo inventory, which was measured failing. The cheapest signal left before a model
-  turn is **the author's own interaction estimate**, asked directly.
-  [Hygiene](issues/09-hygiene.md) named the *data source*: attempt logs are now kept in full,
-  precisely so the first estimate has something to be built from.
-  [Autonomy handoff](issues/13-assist-handoff.md) gave that data its first consumer: an assist
-  packet must print the **cumulative cost for its contract**, so the arithmetic over the logs
-  has to exist before any prediction is attempted.
-- **Deliverable assembly.** Final structure and location of the spec document itself.
+     Agent runtime and prompt-cache strategy -> issues/14-agent-runtime.md
+     graduated to a ticket by the agent-runtime decision, which was the last
+     architectural one:
+     Deliverable assembly -> issues/16-deliverable-assembly.md
+     ruled out of scope by the deliverable-assembly decision — it never graduated in
+     fifteen tickets because it needs a baseline, and this frontier is now closed:
+     Cost estimation -> "Out of scope" below -->
 
 ## Out of scope
 
 Ruled beyond this destination. Does not graduate; returns only as a fresh effort.
+
+- **Cost estimation — predicting a scenario's cost before it runs.** Fog for the whole life of
+  this map, and it never graduated once. [Loop shape](issues/10-loop-shape.md) answered the
+  *control* half (budget in Cypress runs, ≤3 probe / ≤6 total);
+  [Scenario authoring](issues/08-scenario-authoring-assist.md) killed the free text-derived
+  signal — predicting from contract prose means matching prose to a repo inventory, measured
+  failing — leaving the author's own interaction estimate as the cheapest signal before a model
+  turn. [Hygiene](issues/09-hygiene.md) named the data source (attempt logs kept in full),
+  [Autonomy handoff](issues/13-assist-handoff.md) gave it its first consumer (cumulative cost per
+  contract, printed in the packet), and [Agent runtime](issues/14-agent-runtime.md) specified the
+  substrate exactly — four token counts, the 5m/1h split, `thinking_tokens`, the price-table
+  version, the prefix hash, a model-turn count, all per iteration. So the *arithmetic* is
+  finished. The only missing thing is **a baseline to predict from**, and the benchmark has never
+  been run against anything. Ruled out by
+  [Deliverable assembly](issues/16-deliverable-assembly.md): it cannot be architected without
+  data, this map's frontier is closed, so it is handed to the **implementation effort** — where
+  that data first exists — rather than left as live fog in a finished map.
 
 - **Proposing or adding `[data-cy]` attributes to component source.** Tempting — it
   would make generating a test also improve instrumentation — but it turns a test
