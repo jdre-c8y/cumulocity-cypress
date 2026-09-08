@@ -450,6 +450,45 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   wording stops the *human*. Adds **zero IR verbs and zero contract fields** (a fifth consecutive
   ticket), two log fields, one wording requirement.
 
+- [Agent runtime and cache-breakpoint strategy](issues/14-agent-runtime.md) —
+  **A manual loop over `client.messages.create`, three cache breakpoints, `1h` TTL on the two
+  stable ones — and `run_cypress` is not a model tool.** The runtime question turned on one
+  missing accessor: the Tool Runner signals iteration-budget exhaustion with a bare `break`, its
+  count is a private field with no getter, so it **cannot distinguish "the model finished" from
+  "the runner gave up"** — which ticket 10's trip condition 4 and ticket 13's evidence tiers both
+  require. Verified in the installed SDK. The Agent SDK is out twice over: **no `cache_control`
+  API at all**, and ~40 built-in tools including `Write`/`Bash`, i.e. allow-by-default against a
+  design whose whole safety argument is a closed surface.
+  **Found the contradiction this ticket and ticket 10 both missed:** this ticket listed
+  `run_cypress` as a tool; ticket 10's loop says `[run Cypress] ← no model`. v1 ran the
+  experiment by accident — its model *and* its harness both ran Cypress, so **every attempt cost
+  two runs**, and the harness re-run is *required* by ticket 01's anti-gaming guard. Under a
+  budget denominated in Cypress runs, a model-callable run is a model-callable budget. The
+  harness owns it; at most two tools remain and most iterations make none.
+  **The sharper finding: the budget meters Cypress runs, cost accrues in model turns, and
+  nothing meters those.** A lint rejection or a rejected diff costs a turn and no run, so dollars
+  burn while the enforcing counter sits still — v1's *"silently exhausted with no visibility into
+  why"* in a new costume. Task budgets are **inert** here (they reset at every process boundary,
+  their 20,000 floor is 7× an iteration, Sonnet 5 lacks them). So: a per-run **model-turn
+  counter** in the attempt log, beside the run counter.
+  **Corrects this ticket's own premise twice.** v1's 1-hour-TTL fix *"was never re-validated"* →
+  **never applied** — it is in no commit, and v1's own pricing module says *"c8y-cygen never
+  requests a 1h cache TTL"*. Adopted anyway, on a new argument: session-keying was never the
+  issue, **the clock is**, and break-even is `m = 0.652` — one gap over five minutes flips it,
+  at a 6.7:1 payoff. And *"large static prefix, small variable suffix"* is 4.2:1 at iteration 1
+  but **1.5:1 by iteration 6**, because ticket 11's full-IR-snapshot-per-log-entry grows the
+  suffix. **Corrects ticket 09:** its config-override requirement **endorses** v1's shape rather
+  than ruling it out — v1 already used the programmatic API with an optional `config` object, so
+  ticket 09 eliminated a bare-CLI shape v1 never used. **Corrects the record on v1's signature
+  failure:** *"exhausted three times in a row"* was **one run burning all three self-heal
+  attempts**, 150 turns producing nothing, and its causes are now located.
+  Cost: **≈$1.50/scenario on `claude-opus-5`** (≈$0.60 on Sonnet 5), caching saving ~53%, honest
+  range $1.1–$2.3 — **output tokens are 41–46% of the bill and the dominant unknown**. Names
+  `claude-opus-5` because the map never pinned one, on ticket 10's own trap rather than on price:
+  one extra Cypress run is a *sixth* of the scenario's allowance, spent to save $0.90. Adds
+  **zero IR verbs and zero contract fields** (a sixth consecutive ticket), three log fields, one
+  CI assertion. Research: `research/14-agent-runtime` (three files).
+
 ## Unvalidated assumptions
 
 <!-- Not part of the wayfinder template. Added because the destination is a design spec,
@@ -538,6 +577,27 @@ also run `/prototype`; research tickets are resolved by a `/research` subagent.
   packet prints what this contract has cost so far. **Reopens the cap** if a contract is ever
   observed assisting repeatedly with that figure already in front of the human.
 
+- **A Cypress run's start-to-start gap exceeds five minutes.** The whole 1-hour-TTL choice in
+  [Agent runtime](issues/14-agent-runtime.md) turns on it, and it has never been measured —
+  there is no clock anywhere in v1's loop. The payoff asymmetry (costs $0.0375 when unnecessary,
+  saves up to $0.25 when necessary) makes the decision safe either way. **Reopens the TTL** if
+  the gap is measured consistently under five minutes, where 5m is strictly cheaper.
+- **Output tokens are ~3,000 per iteration.** [Agent runtime](issues/14-agent-runtime.md) makes
+  them **41–46% of the bill** and they are the least-supported number in its arithmetic — the
+  reason its per-scenario figure is a range ($1.1–$2.3) rather than a number. Settled by one
+  real iteration. **Reopens §6's arithmetic**, not its conclusions.
+- **The 4-bytes-per-token conversion behind every payload figure.** Likely **~30% low** for both
+  candidate models, which use the newer tokenizer. Settleable for free with
+  `messages.countTokens` against a real assembled prompt, and it should be, before any cost
+  figure is quoted as measured rather than estimated.
+- **`claude-opus-5` is the right single model.** Named by [Agent
+  runtime](issues/14-agent-runtime.md) because a spec saying "one model" without naming one is
+  not implementable, and argued on ticket 10's trap (a weaker model that adds one Cypress run
+  spends a sixth of the budget to save $0.90) rather than on price. Also: **tiered effort is
+  structurally unavailable** — an effort change always invalidates the messages cache and the
+  per-message escape hatch is useless across process boundaries — so this reinforces "one model"
+  mechanically. Revisit with the tiering question once a baseline exists.
+
 Also tracked: the IR's **verb count** is now growing on an axis ticket 03's convergence
 check was not watching. That check passed on *"oracle B4 needed 0 new verbs"* — scenario
 growth. Ticket 12 added two verbs for a new *capability*. Not a falsification, but the next
@@ -546,6 +606,11 @@ ticket that adds a verb should say so out loud. Ticket 07 added none — it adde
 closed vocabularies (value builders, extractor/comparator) — and said so. Ticket 11 added none,
 and one property (the candidate-row reference) that it argues is forced rather than chosen. Ticket 13 added
 none, and no contract field either — the fifth consecutive ticket to leave that format alone.
+Ticket 14 added none of either — the sixth consecutive ticket to leave the contract format
+alone — and grew only the **attempt log**, by three fields. That is now the design's fastest-
+growing artifact: six fields from ticket 11, two from ticket 13, three from ticket 14, and
+ticket 14's own §1 shows it is also what makes late iterations cost more than early ones. The
+next ticket that adds a log field should say so out loud, on the same rule the verb count has.
 
 ## Not yet specified
 
