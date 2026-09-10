@@ -1,0 +1,550 @@
+/**
+ * The loop. One artifact, one kind of model turn, a fresh stateless session each iteration.
+ *
+ *   contract + conventions
+ *     -> [author or refine the IR]   the only model stage
+ *     -> [compile: probe or spec]    deterministic, no model
+ *     -> [run Cypress]               no model; the only metered operation
+ *     -> facts | pass | diagnostic
+ *     -> back to refine
+ *
+ * There are no phases. "Gather ground truth" is not one: it is an early iteration compiled in
+ * probe mode because the IR did not yet lint. The choice of back-end is a property of one turn.
+ *
+ * There is no state to carry across a boundary, because the IR is the state and it is on disk.
+ */
+import fs from "node:fs";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { stringify as toYaml } from "yaml";
+import { AttemptLog, totals, type AttemptEntry, type RunTotals } from "../attempt/attemptLog.js";
+import { Budget, DEFAULT_LIMITS, type BudgetLimits } from "../budget/budget.js";
+import { compile } from "../compiler/compile.js";
+import { buildSourceMap, stepAtLine, type SourceMap } from "../compiler/sourceMap.js";
+import { parseScenarioContract } from "../contract/scenarioContract.js";
+import { resolveForSpecPath, loadConventions } from "../conventions/loadConventions.js";
+import type { Conventions, EffectiveConventions } from "../conventions/types.js";
+import type { CypressRunResult, RunsCypress } from "../cypress/cypressDriver.js";
+import { lintIr, type LintResult, type TripCondition } from "../ir/lintIr.js";
+import { checkPatch, diffIr, type PatchHistoryEntry } from "../ir/patchDiff.js";
+import { allSteps, isProvisional, targetOf, type IrDocument } from "../ir/types.js";
+import { readFacts } from "../probe/readFacts.js";
+import type { FactsDocument } from "../facts/types.js";
+import { score, formatScore, type Score } from "../scorer/scorer.js";
+import { assemblePrompt, readHouseRules } from "../agent/promptAssembly.js";
+import { parseIrReply, ModelError, type CallsModel } from "../agent/callsModel.js";
+import { readPackageAsset } from "../support/assets.js";
+import { WorkingArea, discardSpec, specPathForContract } from "../workarea/workingArea.js";
+import { mayWrite, withHeader } from "../workarea/provenance.js";
+
+export const TOOL_VERSION = "0.2.0";
+
+/**
+ * The two conditions that cannot be iterated out of. Both are answered by a human committing to
+ * one of two files, which the next run reads like any other input.
+ */
+const TERMINAL_TRIPS = new Set<TripCondition>(["zero-dom-steps", "vocabulary-gap"]);
+
+export interface RunOptions {
+  targetRepo: string;
+  /** Repo-relative path of the scenario contract. */
+  contractPath: string;
+  conventionsPath: string;
+  runId: string;
+  runsCypress: RunsCypress;
+  callsModel: CallsModel;
+  limits?: BudgetLimits;
+  /** The benchmark's oracle table and preconditions override a stale Style line. */
+  styleOverride?: "integration" | "mocked";
+  styleNote?: string;
+  baseUrl?: string;
+  env?: Record<string, string>;
+  log?: (line: string) => void;
+}
+
+export type StopCondition =
+  | TripCondition
+  | "green"
+  | "no-spec-produced"
+  /** The output path is not ours to write: a human wrote or edited the file there. */
+  | "spec-path-not-ours";
+
+export interface RunReport {
+  runId: string;
+  contractPath: string;
+  specPath: string;
+  score: Score | null;
+  stopCondition: StopCondition;
+  attempts: AttemptEntry[];
+  cost: RunTotals;
+  tripwireFired: boolean;
+}
+
+function modeFor(ir: IrDocument): "probe" | "spec" {
+  for (const step of allSteps(ir)) {
+    if (step.collect) return "probe";
+    const target = targetOf(step);
+    if (target && isProvisional(target)) return "probe";
+  }
+  return "spec";
+}
+
+function runFormatter(conventions: Conventions, repo: string, file: string): boolean {
+  const [command, ...rest] = conventions.formatter.run;
+  if (!command) return false;
+  const cwd = path.resolve(repo, conventions.formatter.cwd ?? ".");
+  const bin = path.isAbsolute(command) ? command : path.join(cwd, command);
+  if (!fs.existsSync(bin)) return false;
+  try {
+    execFileSync(
+      bin,
+      rest.map((a) => a.replace("{file}", file)),
+      { cwd, stdio: "ignore" }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The spec is written at its final path from the first iteration, formatted by the repo's own
+ * formatter, and only then given its provenance header - so the hash covers exactly the bytes a
+ * later run will compare against.
+ */
+function writeFormattedSpec(
+  absoluteSpecPath: string,
+  body: string,
+  conventions: Conventions,
+  repo: string,
+  contractPath: string,
+  notGreen: boolean
+): { written: boolean; content: string; formatted: boolean; reason?: string } {
+  const existing = fs.existsSync(absoluteSpecPath)
+    ? fs.readFileSync(absoluteSpecPath, "utf8")
+    : null;
+  const verdict = mayWrite(existing);
+  if (!verdict.allowed) {
+    return { written: false, content: "", formatted: false, reason: verdict.detail };
+  }
+
+  // Format the body alone and attach the header afterwards, so the hash covers exactly the bytes
+  // the formatter produced. Between these two writes the file carries no header, so a process
+  // killed here leaves a file the next run refuses to overwrite - which errs toward keeping
+  // whatever is on disk rather than destroying it.
+  fs.mkdirSync(path.dirname(absoluteSpecPath), { recursive: true });
+  fs.writeFileSync(absoluteSpecPath, body);
+  const formatted = runFormatter(conventions, repo, absoluteSpecPath);
+  const formattedBody = fs.readFileSync(absoluteSpecPath, "utf8");
+  fs.writeFileSync(
+    absoluteSpecPath,
+    withHeader({ toolVersion: TOOL_VERSION, contractPath, notGreen }, formattedBody)
+  );
+
+  return {
+    written: true,
+    content: fs.readFileSync(absoluteSpecPath, "utf8"),
+    formatted,
+  };
+}
+
+export async function runScenario(options: RunOptions): Promise<RunReport> {
+  const log = options.log ?? (() => {});
+  const repo = path.resolve(options.targetRepo);
+  const area = new WorkingArea(repo, options.runId);
+  const budget = new Budget(options.limits ?? DEFAULT_LIMITS);
+
+  area.acquireLock();
+  area.prepare();
+
+  try {
+    const contract = parseScenarioContract(
+      fs.readFileSync(path.join(repo, options.contractPath), "utf8"),
+      options.contractPath
+    );
+    const specRelative = specPathForContract(options.contractPath);
+    const specAbsolute = path.join(repo, specRelative);
+    const baseConventions = loadConventions(options.conventionsPath);
+    const conventions: EffectiveConventions = resolveForSpecPath(baseConventions, specRelative);
+
+    if (!conventions.generate) {
+      throw new Error(
+        `${specRelative} is in a directory the conventions file marks as out of scope for generation (${conventions.appliedOverrides.join(", ")}).`
+      );
+    }
+
+    const attemptLog = new AttemptLog(area.attemptLogPath);
+    const houseRules = readHouseRules(repo);
+    const effectiveStyle = options.styleOverride ?? contract.style ?? "integration";
+
+    let previousIr: IrDocument | null = null;
+    let facts: FactsDocument | null = null;
+    let lint: LintResult | null = null;
+    let lastDiagnostic: string | undefined;
+    let lastScreenshot: string | undefined;
+    let lastSourceMap: SourceMap | undefined;
+    let lastRunResult: CypressRunResult | null = null;
+    let specContent = "";
+    let specRuns = 0;
+    let green = false;
+    let stop: StopCondition = "no-spec-produced";
+    // The frozen/free split governs a PATCH - one bounded refine turn after a failed spec run.
+    // It must not govern the probe-to-spec transition, where deleting the collect steps and
+    // re-pointing every outcome at a real assertion is the whole point of the iteration.
+    let previousSpecFailed = false;
+    const interventions: string[] = [];
+    const notes: string[] = [];
+    const history: PatchHistoryEntry[] = [];
+
+    for (let iteration = 1; ; iteration++) {
+      const turnStop = budget.mayCallModel();
+      if (turnStop) {
+        stop = "budget-exhausted";
+        notes.push(`stopped on ${turnStop}: the loop spent its model turns without a green spec`);
+        break;
+      }
+
+      const covered = lint?.coveredOutcomes.length ?? 0;
+      const prompt = assemblePrompt({
+        contract,
+        conventions,
+        houseRules,
+        ir: previousIr,
+        facts,
+        lint,
+        attempts: attemptLog.all(),
+        ...(lastDiagnostic ? { lastDiagnostic } : {}),
+        progressLine: budget.progressLine(covered, contract.outcomes.length),
+        effectiveStyle,
+        ...(options.styleNote ? { styleNote: options.styleNote } : {}),
+      });
+
+      const startedAt = new Date().toISOString();
+      budget.countModelTurn();
+      const reply = await options.callsModel.authorIr({
+        prompt,
+        ...(lastScreenshot ? { screenshotPath: lastScreenshot } : {}),
+      });
+
+      const base: Omit<AttemptEntry, "ir" | "changed" | "verdict" | "run" | "mode"> = {
+        iteration,
+        startedAt,
+        usage: reply.usage,
+        prefixHash: prompt.prefixHash,
+        modelTurns: 1,
+      };
+
+      let ir: IrDocument;
+      try {
+        ir = parseIrReply(reply.text) as IrDocument;
+      } catch (e) {
+        if (!(e instanceof ModelError)) throw e;
+        attemptLog.append({
+          ...base,
+          mode: previousIr ? modeFor(previousIr) : "probe",
+          ir: previousIr ?? ({} as IrDocument),
+          changed: [],
+          verdict: "rejected",
+          rejectReason: e.message,
+          run: "none",
+        });
+        log(`iteration ${iteration}: ${e.message}`);
+        continue;
+      }
+
+      const changed = previousIr ? diffIr(previousIr, ir) : [];
+      if (previousIr && previousSpecFailed) {
+        const patch = checkPatch(previousIr, ir, history);
+        if (!patch.accepted) {
+          attemptLog.append({
+            ...base,
+            mode: modeFor(ir),
+            ir,
+            changed,
+            verdict: "rejected",
+            ...(patch.reason ? { rejectReason: patch.reason } : {}),
+            run: "none",
+          });
+          log(`iteration ${iteration}: diff rejected - ${patch.reason}`);
+          continue;
+        }
+      }
+
+      const mode = modeFor(ir);
+      lint = lintIr({
+        ir,
+        mode,
+        conventions,
+        contract,
+        ...(facts ? { facts } : {}),
+      });
+      fs.writeFileSync(area.irPath, toYaml(ir));
+
+      const terminal = lint.errors.find((e) => e.trip && TERMINAL_TRIPS.has(e.trip));
+      if (terminal?.trip) {
+        attemptLog.append({
+          ...base,
+          mode,
+          ir,
+          changed,
+          verdict: "accepted",
+          run: "none",
+          lintErrors: lint.errors.map((e) => `${e.where}: ${e.message}`),
+          stopCondition: terminal.trip,
+        });
+        stop = terminal.trip;
+        interventions.push(`${terminal.trip}: ${terminal.message}`);
+        log(`iteration ${iteration}: stopped on ${terminal.trip} - ${terminal.message}`);
+        previousIr = ir;
+        break;
+      }
+
+      if (!lint.ok) {
+        attemptLog.append({
+          ...base,
+          mode,
+          ir,
+          changed,
+          verdict: "accepted",
+          run: "none",
+          lintErrors: lint.errors.map((e) => `${e.where}: ${e.message}`),
+        });
+        previousIr = ir;
+        log(`iteration ${iteration}: ${lint.errors.length} lint error(s), no run spent`);
+        continue;
+      }
+
+      const runStop = budget.mayRun(mode);
+      if (runStop) {
+        attemptLog.append({
+          ...base,
+          mode,
+          ir,
+          changed,
+          verdict: "accepted",
+          run: "none",
+          stopCondition: "budget-exhausted",
+        });
+        stop = "budget-exhausted";
+        notes.push(`stopped on ${runStop}`);
+        previousIr = ir;
+        break;
+      }
+
+      const compiled = compile({ ir, mode, conventions });
+
+      previousSpecFailed = false;
+
+      if (mode === "probe") {
+        // The probe runtime is copied in and imported relatively. It is never installed in the
+        // target repo and never committed - only facts survive the run that made it.
+        fs.writeFileSync(
+          path.join(area.probeDir, "runtime.js"),
+          readPackageAsset("probe/runtime.js")
+        );
+        const probeSpec = area.writeProbeSpec(
+          `iteration-${iteration}`,
+          `import './runtime';\n\n${compiled.text}`
+        );
+        budget.countRun("probe");
+        const result = await options.runsCypress.run({
+          targetRepo: repo,
+          specPath: probeSpec,
+          screenshotsFolder: area.screenshotsFolder,
+          videosFolder: area.videosFolder,
+          downloadsFolder: area.downloadsFolder,
+          specPattern: area.probeSpecPattern(),
+          env: { ...options.env, c8yCygenFactsDir: area.factsDirFor(iteration) },
+          ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
+        });
+        // A probe that dies partway still returns everything it already collected. That is
+        // normal, and it is why a wrong provisional guess costs progress rather than the run.
+        facts = readFacts(area.factsDir, {
+          runId: options.runId,
+          tenantUrl: options.baseUrl ?? "",
+          complete: result.pass,
+        });
+        attemptLog.append({
+          ...base,
+          mode,
+          ir,
+          changed,
+          verdict: "accepted",
+          run: "probe",
+          runPassed: result.pass,
+          runDurationMs: result.durationMs,
+          ...(result.testFailures[0]?.errorMessage
+            ? { diagnostic: result.testFailures[0].errorMessage }
+            : {}),
+        });
+        history.push({ changed, passed: result.pass });
+        previousIr = ir;
+        log(
+          `iteration ${iteration}: probe run, ${facts.surfaces.length} surface(s), ${facts.surfaces.reduce((n, s) => n + s.rows.length, 0)} row(s)`
+        );
+        continue;
+      }
+
+      const write = writeFormattedSpec(
+        specAbsolute,
+        compiled.text,
+        baseConventions,
+        repo,
+        options.contractPath,
+        true
+      );
+      if (!write.written) {
+        stop = "spec-path-not-ours";
+        interventions.push(
+          `refused to write ${specRelative}: ${write.reason ?? "the path is not ours to write"}`
+        );
+        previousIr = ir;
+        break;
+      }
+      specContent = write.content;
+      if (!write.formatted) {
+        notes.push(
+          "the repo's formatter did not run, so quoting and layout are the compiler's rather than the repo's"
+        );
+      }
+      lastSourceMap = buildSourceMap(specRelative, specContent, compiled.statements);
+      fs.writeFileSync(area.sourceMapPath, JSON.stringify(lastSourceMap, null, 2));
+
+      budget.countRun("spec");
+      specRuns += 1;
+      const result = await options.runsCypress.run({
+        targetRepo: repo,
+        specPath: specAbsolute,
+        screenshotsFolder: area.screenshotsFolder,
+        videosFolder: area.videosFolder,
+        downloadsFolder: area.downloadsFolder,
+        ...(options.env ? { env: options.env } : {}),
+        ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
+      });
+      lastRunResult = result;
+
+      const failure = result.testFailures[0];
+      const failingLine = failure?.location?.line;
+      const failingStep =
+        failingLine !== undefined && lastSourceMap
+          ? stepAtLine(lastSourceMap, failingLine)?.stepPath
+          : undefined;
+      lastDiagnostic = failure?.errorMessage ?? result.specFailures[0]?.errorMessage;
+      lastScreenshot = failure?.screenshotPath;
+
+      attemptLog.append({
+        ...base,
+        mode,
+        ir,
+        changed,
+        verdict: "accepted",
+        run: "spec",
+        runPassed: result.pass,
+        runDurationMs: result.durationMs,
+        ...(failingStep ? { failingStepPath: failingStep } : {}),
+        ...(lastDiagnostic ? { diagnostic: lastDiagnostic } : {}),
+        ...(lastScreenshot ? { screenshotPath: lastScreenshot } : {}),
+        sourceMap: lastSourceMap,
+      });
+      history.push({ changed, passed: result.pass });
+      previousIr = ir;
+
+      if (result.pass) {
+        green = true;
+        stop = "green";
+        // Re-write the header without the not-green mark now that the run is green.
+        writeFormattedSpec(
+          specAbsolute,
+          compiled.text,
+          baseConventions,
+          repo,
+          options.contractPath,
+          false
+        );
+        specContent = fs.readFileSync(specAbsolute, "utf8");
+        lastSourceMap = buildSourceMap(specRelative, specContent, compiled.statements);
+        fs.writeFileSync(area.sourceMapPath, JSON.stringify(lastSourceMap, null, 2));
+        log(`iteration ${iteration}: spec run passed`);
+        break;
+      }
+
+      previousSpecFailed = true;
+      log(
+        `iteration ${iteration}: spec run failed at ${failingStep ?? "an unmapped line"}` +
+          "; the heal path is out of scope for this slice, so the run ends here"
+      );
+      // No patch rung and no re-probe in this slice: if the first emitted spec fails, the run
+      // ends and reports. That is the informative first number - whether the design can generate
+      // a correct spec in one pass.
+      break;
+    }
+
+    // Only facts survive a probe run.
+    area.discardProbeSpecs();
+
+    // A run that does not end green deletes its spec. An assist is not that failure: its spec
+    // stays, marked not green, so the human can run the thing they are being asked about.
+    if (!green && stop !== "green" && interventions.length === 0) {
+      discardSpec(specAbsolute);
+    }
+
+    const cost = totals(attemptLog.all());
+    if (budget.tripwireFired()) {
+      notes.push(
+        `TRIPWIRE: ${budget.probeRuns} probe runs against a cap of ${budget.limits.probeRuns}. This reopens the Cypress-probe decision.`
+      );
+    }
+    if (cost.runGapsMs.some((ms) => ms > 5 * 60_000)) {
+      notes.push(
+        "at least one start-to-start gap between Cypress runs exceeded five minutes, which is the condition the one-hour cache TTL was chosen for"
+      );
+    }
+
+    const scored =
+      specContent && lastSourceMap
+        ? score({
+            contract,
+            specText: specContent,
+            specPath: specRelative,
+            sourceMap: lastSourceMap,
+            runResult: lastRunResult,
+            greenOnFirstAttempt: green && specRuns === 1,
+            retriesDisabled: true,
+            interventions,
+            cost,
+            notes,
+          })
+        : null;
+
+    return {
+      runId: options.runId,
+      contractPath: options.contractPath,
+      specPath: specRelative,
+      score: scored,
+      stopCondition: stop,
+      attempts: attemptLog.all(),
+      cost,
+      tripwireFired: budget.tripwireFired(),
+    };
+  } finally {
+    area.releaseLock();
+  }
+}
+
+export function formatReport(report: RunReport): string {
+  const lines = [
+    `run ${report.runId}  ${report.contractPath}`,
+    `stopped because: ${report.stopCondition}`,
+    "",
+  ];
+  if (report.score) {
+    lines.push(formatScore(report.score, report.specPath));
+  } else {
+    lines.push(
+      "No spec was produced, so there is nothing to score on axes A or B.",
+      `  cost  $${report.cost.costUsd.toFixed(4)} over ${report.cost.iterations} iteration(s), ` +
+        `${report.cost.totalRuns} Cypress run(s), ${report.cost.modelTurns} model turn(s)`
+    );
+  }
+  return lines.join("\n");
+}

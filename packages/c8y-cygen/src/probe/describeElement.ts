@@ -1,0 +1,165 @@
+/**
+ * Reduces one observed element to one candidate row.
+ *
+ * The model is never shown DOM. It is shown a summary of these rows, and the ladder searches
+ * the rows themselves - so this is where the ban list is enforced: an attribute with no field
+ * here is invisible to the ladder by construction, not by documentation.
+ *
+ * Written against a structural view of an element rather than the DOM types, so the reduction
+ * can be exercised without a browser. The probe passes real elements.
+ */
+import type { AncestorDescriptor, CandidateRow, RowAttrs, Visibility } from "../facts/types.js";
+
+export interface ElementLike {
+  tagName: string;
+  getAttribute(name: string): string | null;
+  readonly classList: { readonly length: number; item(i: number): string | null };
+  readonly children: { readonly length: number; item(i: number): ElementLike | null };
+  parentElement: ElementLike | null;
+  textContent: string | null;
+}
+
+/** Everything the reduction needs to know about how the element is painted. */
+export interface Painting {
+  visibility: Visibility;
+}
+
+/** The ladder's whole attribute vocabulary. Nothing else has anywhere to go. */
+const ATTRS: [keyof RowAttrs, string][] = [
+  ["dataCy", "data-cy"],
+  ["name", "name"],
+  ["formControlName", "formcontrolname"],
+  ["id", "id"],
+  ["role", "role"],
+  ["ariaLabel", "aria-label"],
+  ["title", "title"],
+  ["placeholder", "placeholder"],
+  ["type", "type"],
+];
+
+const MAX_TEXT = 80;
+const MAX_ANCESTORS = 8;
+
+/**
+ * Angular sprays volatile state classes onto everything. A selector built from one is a
+ * selector that breaks when the form is touched, so they never reach a row.
+ */
+const VOLATILE_CLASS = /^(ng-|cdk-|c8y-ng-|mat-ripple|is-active$|active$|open$|show$|collapsed$|focus$|hover$)/;
+
+export function classesOf(el: ElementLike): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < el.classList.length; i++) {
+    const c = el.classList.item(i);
+    if (c && !VOLATILE_CLASS.test(c)) out.push(c);
+  }
+  return out.sort();
+}
+
+export function attrsOf(el: ElementLike): RowAttrs {
+  const attrs: RowAttrs = {};
+  for (const [key, html] of ATTRS) {
+    const value = el.getAttribute(html);
+    if (value !== null && value !== "") attrs[key] = value;
+  }
+  return attrs;
+}
+
+/**
+ * The element's own visible text, not its subtree's. A wrapper carrying the whole panel's text
+ * would match every `contains` and make the ladder's uniqueness measurement meaningless.
+ */
+export function ownTextOf(el: ElementLike): string {
+  const flatten = (t: string | null): string => (t ?? "").replace(/\s+/g, " ").trim();
+  let rest = flatten(el.textContent);
+  for (let i = 0; i < el.children.length; i++) {
+    const childText = flatten(el.children.item(i)?.textContent ?? null);
+    if (childText) rest = rest.replace(childText, " ");
+  }
+  return rest.replace(/\s+/g, " ").trim().slice(0, MAX_TEXT);
+}
+
+const isCustomTag = (t: string): boolean =>
+  /^c8y/.test(t) || (t.includes("-") && !t.startsWith("ng-"));
+
+const ACTIONABLE_TAGS = new Set(["a", "button", "input", "select", "textarea", "label"]);
+
+export function isActionable(el: ElementLike): boolean {
+  const tag = el.tagName.toLowerCase();
+  if (ACTIONABLE_TAGS.has(tag)) return true;
+  const role = el.getAttribute("role");
+  if (role && ["button", "link", "tab", "menuitem", "option", "checkbox"].includes(role)) {
+    return true;
+  }
+  return el.getAttribute("tabindex") !== null;
+}
+
+export function ancestorsOf(el: ElementLike): AncestorDescriptor[] {
+  const chain: AncestorDescriptor[] = [];
+  let current = el.parentElement;
+  while (current && chain.length < MAX_ANCESTORS) {
+    const tag = current.tagName.toLowerCase();
+    const dataCy = current.getAttribute("data-cy");
+    const id = current.getAttribute("id");
+    const classes = classesOf(current);
+    const text = ownTextOf(current);
+    const descriptor: AncestorDescriptor = { tag };
+    if (dataCy) descriptor.dataCy = dataCy;
+    if (id) descriptor.id = id;
+    if (classes.length > 0) descriptor.classes = classes;
+    // A custom tag's OWN text only. Widening this to its whole subtree would offer scopes no
+    // probe verified - an outer tag's textContent is most of the page. The narrow reading costs
+    // a longer path or a refusal, never a wrong selector; B2's cy.contains(tag, title) idiom is
+    // what will force the question, and B2 is not in this slice.
+    if (text && isCustomTag(tag)) descriptor.text = text;
+    chain.push(descriptor);
+    current = current.parentElement;
+  }
+  // Root first, so a path reads outermost to innermost the way it is written.
+  return chain.reverse();
+}
+
+/** The element's own leaf descriptor, for measuring a repeating list. */
+function leafKey(el: ElementLike): string {
+  const attrs = attrsOf(el);
+  if (attrs.dataCy) return `[data-cy=${attrs.dataCy}]`;
+  const tag = el.tagName.toLowerCase();
+  const classes = classesOf(el);
+  return classes.length > 0 ? `${tag}.${classes.join(".")}` : tag;
+}
+
+/**
+ * Many neighbours sharing this element's own leaf descriptor. The only place a position is a
+ * legal rung, and the probe measures it rather than anyone guessing it.
+ */
+export function repeatOf(el: ElementLike): { siblingsLike: number; index: number } {
+  const parent = el.parentElement;
+  if (!parent) return { siblingsLike: 1, index: 0 };
+  const key = leafKey(el);
+  let siblingsLike = 0;
+  let index = 0;
+  for (let i = 0; i < parent.children.length; i++) {
+    const sibling = parent.children.item(i);
+    if (!sibling || leafKey(sibling) !== key) continue;
+    if (sibling === el) index = siblingsLike;
+    siblingsLike += 1;
+  }
+  return { siblingsLike: Math.max(siblingsLike, 1), index };
+}
+
+export function describeElement(
+  el: ElementLike,
+  id: string,
+  painting: Painting
+): CandidateRow {
+  return {
+    id,
+    ancestors: ancestorsOf(el),
+    tag: el.tagName.toLowerCase(),
+    attrs: attrsOf(el),
+    classes: classesOf(el),
+    text: ownTextOf(el),
+    visibility: painting.visibility,
+    actionable: isActionable(el),
+    repeat: repeatOf(el),
+  };
+}

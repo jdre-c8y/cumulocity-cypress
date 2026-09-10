@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "c8y-cygen/probe-payload.schema.json",
+  "title": "One file a probe run wrote",
+  "description": "Validated on read, at the node boundary. A malformed payload is the input to every downstream decision and would otherwise fail silently. A probe that dies partway leaves fewer of these, not broken ones.",
+  "type": "object",
+  "required": ["kind", "label", "observedAt", "nodes"],
+  "properties": {
+    "kind": { "enum": ["collect", "provisional"] },
+    "label": { "type": "string", "minLength": 1 },
+    "stepId": { "type": "string" },
+    "within": { "type": ["string", "null"] },
+    "observedAt": { "type": "string" },
+    "matchCount": { "type": "integer", "minimum": 0 },
+    "matchedIndex": { "type": "integer", "minimum": -1 },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["i", "parent", "tag", "attrs", "classes", "text", "visibility"],
+        "additionalProperties": false,
+        "properties": {
+          "i": { "type": "integer", "minimum": 0 },
+          "parent": { "type": "integer", "minimum": -1 },
+          "tag": { "type": "string", "minLength": 1 },
+          "attrs": {
+            "type": "object",
+            "description": "The ladder's vocabulary only. The browser never sends another, which is how the ban list is enforced rather than merely documented.",
+            "additionalProperties": false,
+            "properties": {
+              "data-cy": { "type": "string" },
+              "name": { "type": "string" },
+              "formcontrolname": { "type": "string" },
+              "id": { "type": "string" },
+              "role": { "type": "string" },
+              "aria-label": { "type": "string" },
+              "title": { "type": "string" },
+              "placeholder": { "type": "string" },
+              "type": { "type": "string" },
+              "tabindex": { "type": "string" }
+            }
+          },
+          "classes": { "type": "array", "items": { "type": "string" } },
+          "text": { "type": "string" },
+          "visibility": { "enum": ["visible", "hidden", "clipped"] }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "provisional" } }, "required": ["kind"] },
+      "then": { "required": ["stepId", "matchCount", "matchedIndex"] }
+    }
+  ]
+}

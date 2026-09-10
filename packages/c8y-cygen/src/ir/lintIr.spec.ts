@@ -1,0 +1,290 @@
+import { lintIr, type LintInput } from "./lintIr.js";
+import { b0Contract, b0Conventions, b0Facts, b0Ir, b0ProbeIr } from "../testing/b0.js";
+import type { IrDocument, IrStep } from "./types.js";
+
+function specInput(mutate: (ir: IrDocument) => void = () => {}): LintInput {
+  const ir = b0Ir();
+  mutate(ir);
+  return {
+    ir,
+    mode: "spec",
+    conventions: b0Conventions(),
+    contract: b0Contract(),
+    facts: b0Facts(),
+  };
+}
+
+const messages = (input: LintInput): string =>
+  lintIr(input)
+    .errors.map((e) => `${e.where}: ${e.message}`)
+    .join("\n");
+
+describe("the semantic linter", () => {
+  it("passes the B0 spec IR", () => {
+    const result = lintIr(specInput());
+
+    expect(result.errors).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it("passes the B0 probe IR in probe mode, and lists what is still missing", () => {
+    const result = lintIr({
+      ir: b0ProbeIr(),
+      mode: "probe",
+      conventions: b0Conventions(),
+      contract: b0Contract(),
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.gaps.find((g) => g.need === "selector")?.at).toBe("open-first-event");
+    expect(result.gaps.filter((g) => g.need === "assertion").length).toBeGreaterThan(0);
+  });
+
+  it("reports one assertion gap per outcome, not one per reference to a dump", () => {
+    const result = lintIr({
+      ir: b0ProbeIr(),
+      mode: "probe",
+      conventions: b0Conventions(),
+      contract: b0Contract(),
+    });
+
+    const assertionGaps = result.gaps.filter((g) => g.need === "assertion");
+    expect(assertionGaps).toHaveLength(7);
+    expect(new Set(assertionGaps.map((g) => g.at)).size).toBe(7);
+  });
+
+  it("names the outcomes already satisfied, so progress is counted rather than inferred", () => {
+    expect(lintIr(specInput()).coveredOutcomes).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(
+      lintIr({
+        ir: b0ProbeIr(),
+        mode: "probe",
+        conventions: b0Conventions(),
+        contract: b0Contract(),
+      }).coveredOutcomes
+    ).toEqual([]);
+  });
+
+  it("will not let a spec IR lint while any selector is still provisional", () => {
+    // This is the loop's stop condition. An under-probed spec IR is unlinttable by
+    // construction, so "am I done gathering?" is a free local check.
+    const result = lintIr({
+      ir: b0ProbeIr(),
+      mode: "spec",
+      conventions: b0Conventions(),
+      contract: b0Contract(),
+      facts: b0Facts(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.trip === "selector-absent")).toBe(true);
+  });
+});
+
+describe("the broken-file corpus", () => {
+  // One planted defect per rule, extended with every capability added. Not a nice-to-have:
+  // adding one optional field once cut schema coverage from three defects caught to two,
+  // breaking the linter's verb detection and the compiler's verb lookup at the same time -
+  // one capability, three breakages, nothing failing.
+
+  it("catches a probe-only verb in a spec-mode IR", () => {
+    const input = specInput((ir) => {
+      ir.steps.push({ id: "sneaky", collect: { label: "x", within: "body" } });
+    });
+
+    expect(messages(input)).toMatch(/'collect' is probe-only/);
+  });
+
+  it("catches a provisional selector in a spec-mode IR", () => {
+    const input = specInput((ir) => {
+      (ir.steps[5] as IrStep).click = {
+        target: { provisional: { tag: "li", nth: 0 } },
+      };
+    });
+
+    expect(messages(input)).toMatch(/provisional selector is probe-only/);
+  });
+
+  it("catches an outcome satisfied by a step that asserts nothing", () => {
+    const input = specInput((ir) => {
+      (ir.outcomes[0] as { satisfiedBy: string[] }).satisfiedBy = ["open-events"];
+    });
+
+    expect(messages(input)).toMatch(/A dump is not an assertion/);
+  });
+
+  it("catches two verbs in one step", () => {
+    const input = specInput((ir) => {
+      (ir.steps[3] as IrStep).click = {
+        target: { resolved: "cy.get('c8y-tabs-outlet')", fromRow: "events-page#0" },
+      };
+    });
+
+    expect(messages(input)).toMatch(/exactly one verb, found 2/);
+  });
+
+  it("catches an unknown verb", () => {
+    const input = specInput((ir) => {
+      (ir.steps[3] as Record<string, unknown>)["teleport"] = { to: "x" };
+    });
+
+    // An unknown key is refused by the schema before the linter sees it; either layer is fine,
+    // what matters is that it does not reach the compiler.
+    expect(messages(input)).toMatch(/schema|unknown verb/);
+  });
+
+  it("catches a dangling outcome reference", () => {
+    const input = specInput((ir) => {
+      (ir.outcomes[2] as { satisfiedBy: string[] }).satisfiedBy = ["check-tiem"];
+    });
+
+    expect(messages(input)).toMatch(/satisfiedBy 'check-tiem' matches no step id/);
+  });
+
+  it("catches a selector derived from a row no probe observed", () => {
+    const input = specInput((ir) => {
+      (ir.steps[6] as IrStep).assert!.target = {
+        resolved: "cy.get('[data-cy=\"invented\"]')",
+        fromRow: "event-detail#99",
+      };
+    });
+
+    expect(messages(input)).toMatch(/row 'event-detail#99', which no probe observed/);
+  });
+
+  it("catches a selector the ladder does not derive from the row it names", () => {
+    // The verifiable link. The literal selector stays in the IR so it is reviewable, and the
+    // row reference beside it is what makes "the model never authors a selector" checkable.
+    const input = specInput((ir) => {
+      (ir.steps[6] as IrStep).assert!.target = {
+        resolved: "cy.get('.source-wrapper')",
+        fromRow: "event-detail#1",
+      };
+    });
+
+    expect(messages(input)).toMatch(/is not what the ladder derives from row/);
+  });
+
+  it("catches an unbound runtime reference", () => {
+    const input = specInput((ir) => {
+      (ir.steps[3] as IrStep).visit!.path = "/apps/x#/device/${deviceIdentifier}/events";
+    });
+
+    expect(messages(input)).toMatch(/unbound runtime reference '\$\{deviceIdentifier\}'/);
+  });
+
+  it("catches a capture referenced before the step that binds it", () => {
+    const input = specInput((ir) => {
+      const capture = ir.steps[1] as IrStep;
+      ir.steps.splice(1, 1);
+      ir.steps.push(capture);
+    });
+
+    expect(messages(input)).toMatch(/unbound runtime reference/);
+  });
+
+  it("catches a helper that is not real", () => {
+    // postEvent exists nowhere in either repo. It linted clean once and would have failed only
+    // when Cypress ran; the enumeration probe is what closes that hole at lint time.
+    const input = specInput((ir) => {
+      (ir.steps[0] as IrStep).callRepoHelper!.name = "postEvent";
+    });
+
+    expect(messages(input)).toMatch(/'postEvent' is not a registered command/);
+  });
+
+  it("tells a real-but-unblessed helper apart from one that is not real", () => {
+    const input = specInput((ir) => {
+      (ir.steps[0] as IrStep).callRepoHelper!.name = "createUser";
+    });
+
+    expect(messages(input)).toMatch(/is a real command in this repo but is not blessed/);
+  });
+
+  it("catches a value builder this repo does not have", () => {
+    const input = specInput((ir) => {
+      ir.vars = { deviceName: { builder: "randomWord" } };
+    });
+
+    expect(messages(input)).toMatch(/no value builder 'randomWord'/);
+  });
+
+  it("catches a value builder a directory override denies", () => {
+    const conventions = b0Conventions();
+    conventions.deniedValueBuilders = ["uniqueName"];
+    conventions.effectiveValueBuilders = conventions.effectiveValueBuilders.filter(
+      (b) => b.id !== "uniqueName"
+    );
+
+    const result = lintIr({ ...specInput(), conventions });
+
+    expect(result.errors.map((e) => e.message).join("\n")).toMatch(
+      /'uniqueName' is denied in this directory/
+    );
+  });
+
+  it("catches an invented literal in a request body", () => {
+    const input = specInput((ir) => {
+      const body = (ir.steps[2] as IrStep).request!.body as {
+        object: Record<string, unknown>;
+      };
+      body.object["severity"] = "CRITICAL";
+    });
+
+    expect(messages(input)).toMatch(/appears nowhere in the scenario contract/);
+  });
+
+  it("catches an IR with zero DOM steps and names it as the contract genre", () => {
+    const input = specInput((ir) => {
+      ir.steps = ir.steps.filter((s) => s.request || s.callRepoHelper);
+      ir.outcomes = [{ id: 1, text: "x", satisfiedBy: ["post-event"] }];
+    });
+
+    const result = lintIr(input);
+
+    expect(result.errors.some((e) => e.trip === "zero-dom-steps")).toBe(true);
+  });
+
+  it("catches an Expected Outcome with no assertion at all", () => {
+    const input = specInput((ir) => {
+      ir.outcomes = ir.outcomes.filter((o) => o.id !== 6);
+      ir.steps = ir.steps.filter((s) => s.id !== "check-custom-data-items");
+    });
+
+    const result = lintIr(input);
+
+    expect(result.errors.some((e) => e.trip === "outcome-unmappable")).toBe(true);
+    expect(messages(input)).toMatch(/Expected Outcome 6 has no assertion/);
+  });
+
+  it("catches an outcome satisfied by a value a fabricating move produced", () => {
+    // The cheapest route to green is to fabricate the value about to be asserted, and it
+    // yields a *passing* spec, so nothing else in the system would ever catch it.
+    const input = specInput((ir) => {
+      (ir.steps[0] as IrStep).callRepoHelper = {
+        name: "createMockedDevice",
+        args: [{ object: { name: { ref: "deviceName" } } }],
+      };
+      (ir.steps[0] as IrStep).captures = "mockedDevice";
+      (ir.steps[6] as IrStep).assert!.operand = { ref: "mockedDevice" };
+    });
+
+    expect(messages(input)).toMatch(/a fabricating setup move produced in the same test/);
+  });
+
+  it("catches a duplicated step id", () => {
+    const input = specInput((ir) => {
+      (ir.steps[7] as IrStep).id = "check-source";
+    });
+
+    expect(messages(input)).toMatch(/used more than once/);
+  });
+
+  it("catches an outcome the scenario contract does not have", () => {
+    const input = specInput((ir) => {
+      ir.outcomes.push({ id: 8, text: "invented", satisfiedBy: ["check-type"] });
+    });
+
+    expect(messages(input)).toMatch(/outcome 8 is not an Expected Outcome/);
+  });
+});

@@ -1,0 +1,192 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "c8y-cygen/conventions.schema.json",
+  "title": "c8y-cygen per-repo conventions file",
+  "description": "SHAPE ONLY. Every semantic rule - is a helper real, is a builder denied in this directory - lives in the hand-written linter with a regression case, never here. A capability added to a schema once cut its coverage from three planted defects to two, silently.",
+  "type": "object",
+  "required": ["schemaVersion", "repo", "placement", "formatter", "commands"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "repo": { "type": "string" },
+    "kind": { "enum": ["app", "plugin"] },
+    "testDataPrefix": { "type": "string" },
+    "minedFrom": { "type": "object" },
+
+    "placement": {
+      "type": "object",
+      "required": ["specRoot", "suffix"],
+      "properties": {
+        "specRoot": { "type": "string" },
+        "suffix": { "type": "string" },
+        "directories": { "type": "object" }
+      }
+    },
+
+    "formatter": {
+      "type": "object",
+      "required": ["run", "configFound"],
+      "properties": {
+        "run": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "cwd": { "type": "string" },
+        "configFound": { "type": ["string", "null"] }
+      }
+    },
+
+    "commands": {
+      "type": "object",
+      "required": ["available", "blessed", "idiomatic"],
+      "properties": {
+        "available": {
+          "type": "object",
+          "required": ["source", "names"],
+          "properties": {
+            "source": { "const": "probe" },
+            "generated": { "const": true },
+            "names": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "collisions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "winner"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "winner": { "enum": ["repo", "library"] },
+                  "repoSignature": { "type": "string" },
+                  "librarySignature": { "type": "string" }
+                }
+              }
+            },
+            "knownPhantoms": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "why"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "why": { "type": "string" },
+                  "realName": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+
+        "blessed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "binding", "kind"],
+            "properties": {
+              "name": { "type": "string" },
+              "binding": { "enum": ["global", "import", "inline"] },
+              "kind": { "enum": ["real-state", "fabricating", "neither"] },
+              "importFrom": { "type": "string" },
+              "definedIn": { "type": "string" },
+              "source": { "type": "string" },
+              "pairsWith": { "type": ["string", "null"] },
+              "teardown": { "type": "string" },
+              "uses": { "type": "integer", "minimum": 0 },
+              "role": { "enum": ["auth", "navigate", "setup", "teardown"] },
+              "returns": { "type": "string" },
+              "fabricates": { "type": "array", "items": { "type": "string" } },
+              "callShape": { "type": "string" }
+            },
+            "allOf": [
+              {
+                "if": { "properties": { "binding": { "const": "import" } }, "required": ["binding"] },
+                "then": { "required": ["importFrom"] }
+              },
+              {
+                "if": { "properties": { "binding": { "const": "inline" } }, "required": ["binding"] },
+                "then": { "required": ["definedIn", "source"] }
+              }
+            ]
+          }
+        },
+
+        "withheld": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["names", "why"],
+            "properties": {
+              "names": { "type": "array", "items": { "type": "string" } },
+              "uses": { "type": "integer" },
+              "why": { "type": "string" }
+            }
+          }
+        },
+
+        "idiomatic": {
+          "type": "object",
+          "properties": {
+            "auth": { "type": "string" },
+            "navigate": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "apiSetup": {
+      "type": "object",
+      "required": ["prefer"],
+      "properties": {
+        "prefer": { "enum": ["request", "c8yclient"] },
+        "counts": { "type": "object" },
+        "requestIsOverwritten": { "type": "boolean" },
+        "callShape": { "type": "string" }
+      }
+    },
+
+    "valueBuilders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "emit"],
+        "properties": {
+          "id": { "type": "string" },
+          "emit": { "type": "string" },
+          "uses": { "type": "integer" },
+          "prefixConvention": { "type": "string" },
+          "keys": { "type": "array", "items": { "type": "string" } },
+          "boundOnceAndReused": { "type": "integer" }
+        }
+      }
+    },
+
+    "idioms": {
+      "type": "object",
+      "properties": {
+        "describeOptions": { "type": ["string", "null"] },
+        "beforeEach": { "type": "array", "items": { "type": "string" } },
+        "timePreamble": { "type": "array", "items": { "type": "string" } },
+        "teardown": { "type": "object" },
+        "uncaughtException": { "type": "string" }
+      }
+    },
+
+    "runtime": { "type": "object" },
+
+    "overrides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["match", "why"],
+        "properties": {
+          "match": { "type": "string" },
+          "why": { "type": "string" },
+          "generate": { "type": "boolean" },
+          "idioms": { "type": "object" },
+          "valueBuilders": {
+            "type": "object",
+            "properties": {
+              "deny": { "type": "array", "items": { "type": "string" } },
+              "why": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,234 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "c8y-cygen/ir.schema.json",
+  "title": "c8y-cygen IR",
+  "description": "SHAPE ONLY, and deliberately so. The exactly-one-verb-per-step rule is NOT enforced here: it once rode on maxProperties, an optional step id was added, maxProperties went from 1 to 2, and schema coverage silently fell from three planted defects caught to two. Every rule that matters lives in lintIr.ts with a case in the broken-file corpus.",
+  "type": "object",
+  "required": ["version", "meta", "steps", "outcomes"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "meta": {
+      "type": "object",
+      "required": ["contract", "suite", "title", "style"],
+      "additionalProperties": false,
+      "properties": {
+        "contract": { "type": "string" },
+        "suite": { "type": "string" },
+        "title": { "type": "string" },
+        "style": { "enum": ["integration", "mocked"] },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "vars": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/value" }
+    },
+    "setup": { "type": "array", "items": { "$ref": "#/definitions/step" } },
+    "steps": { "type": "array", "items": { "$ref": "#/definitions/step" }, "minItems": 1 },
+    "outcomes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "text", "satisfiedBy"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "text": { "type": "string" },
+          "satisfiedBy": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" },
+            "description": "Step ids, never indices. Every one of four index references was off by one the first time this was tried, and the guardrail caught exactly one of them."
+          }
+        }
+      }
+    }
+  },
+
+  "definitions": {
+    "value": {
+      "description": "No raw-expression case, on purpose. A value the vocabulary cannot build stops the run and asks a human.",
+      "oneOf": [
+        { "type": ["string", "number", "boolean", "null"] },
+        {
+          "type": "object",
+          "required": ["ref"],
+          "additionalProperties": false,
+          "properties": { "ref": { "type": "string" } }
+        },
+        {
+          "type": "object",
+          "required": ["builder"],
+          "additionalProperties": false,
+          "properties": {
+            "builder": { "type": "string" },
+            "args": {
+              "type": "object",
+              "additionalProperties": { "type": ["string", "number"] }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["object"],
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/definitions/value" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["list"],
+          "additionalProperties": false,
+          "properties": {
+            "list": { "type": "array", "items": { "$ref": "#/definitions/value" } }
+          }
+        }
+      ]
+    },
+
+    "cardinality": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["exactly"],
+          "additionalProperties": false,
+          "properties": { "exactly": { "type": "integer", "minimum": 1 } }
+        },
+        {
+          "type": "object",
+          "required": ["atLeast"],
+          "additionalProperties": false,
+          "properties": { "atLeast": { "type": "integer", "minimum": 1 } }
+        }
+      ]
+    },
+
+    "target": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["resolved", "fromRow"],
+          "additionalProperties": false,
+          "properties": {
+            "resolved": { "type": "string" },
+            "fromRow": {
+              "type": "string",
+              "description": "The candidate row the ladder derived this selector from. The linter re-runs the ladder on it and compares."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["provisional"],
+          "additionalProperties": false,
+          "properties": {
+            "provisional": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "within": { "type": "string" },
+                "tag": { "type": "string" },
+                "text": { "type": "string" },
+                "matches": { "type": "string" },
+                "nth": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        }
+      ]
+    },
+
+    "step": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "captures": { "type": "string", "minLength": 1 },
+
+        "visit": {
+          "type": "object",
+          "required": ["path"],
+          "additionalProperties": false,
+          "properties": { "path": { "type": "string" } }
+        },
+
+        "click": {
+          "type": "object",
+          "required": ["target"],
+          "additionalProperties": false,
+          "properties": { "target": { "$ref": "#/definitions/target" } }
+        },
+
+        "settle": {
+          "type": "object",
+          "required": ["target", "state"],
+          "additionalProperties": false,
+          "properties": {
+            "target": { "$ref": "#/definitions/target" },
+            "state": { "enum": ["visible", "exists"] },
+            "cardinality": { "$ref": "#/definitions/cardinality" },
+            "timeoutMs": { "type": "integer", "minimum": 0 }
+          }
+        },
+
+        "assert": {
+          "type": "object",
+          "required": ["target", "extract", "compare", "operand"],
+          "additionalProperties": false,
+          "properties": {
+            "target": { "$ref": "#/definitions/target" },
+            "extract": { "enum": ["text", "attribute", "value", "count"] },
+            "attribute": { "type": "string" },
+            "compare": {
+              "enum": ["equals", "includes", "matches", "withinMinutesOfNow"]
+            },
+            "operand": { "$ref": "#/definitions/value" },
+            "cardinality": { "$ref": "#/definitions/cardinality" },
+            "timeoutMs": { "type": "integer", "minimum": 0 }
+          }
+        },
+
+        "callRepoHelper": {
+          "type": "object",
+          "required": ["name"],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string" },
+            "args": { "type": "array", "items": { "$ref": "#/definitions/value" } }
+          }
+        },
+
+        "request": {
+          "type": "object",
+          "required": ["method", "url"],
+          "additionalProperties": false,
+          "properties": {
+            "method": { "enum": ["GET", "POST", "PUT", "DELETE"] },
+            "url": { "type": "string" },
+            "body": { "$ref": "#/definitions/value" }
+          }
+        },
+
+        "collect": {
+          "type": "object",
+          "required": ["label", "within"],
+          "additionalProperties": false,
+          "properties": {
+            "label": { "type": "string" },
+            "within": {
+              "type": "string",
+              "description": "Always scoped. An automatic collect has no way to choose a scope, so it would be unscoped by construction."
+            }
+          }
+        }
+      }
+    }
+  }
+}

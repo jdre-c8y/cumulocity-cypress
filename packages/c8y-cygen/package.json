@@ -1,0 +1,48 @@
+{
+  "name": "cumulocity-cypress-cygen",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Generates Cumulocity Cypress E2E specs from a scenario contract: the model authors a declarative IR, a compiler emits house-style TypeScript, and the harness runs Cypress.",
+  "bin": {
+    "c8y-cygen": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json && node ./scripts/copyAssets.mjs",
+    "clean": "rimraf dist/ && rimraf *.tsbuildinfo",
+    "cygen": "tsx src/cli.ts",
+    "test": "jest --config ../../jest.config.mjs --selectProjects c8y-cygen",
+    "test:watch": "jest --config ../../jest.config.mjs --selectProjects c8y-cygen --watch",
+    "typecheck": "tsc -p tsconfig.spec.json --noEmit",
+    "scout": "tsx src/cli.ts scout"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cumulocity-IoT/cumulocity-cypress.git",
+    "directory": "packages/c8y-cygen"
+  },
+  "keywords": [
+    "Cypress",
+    "Cumulocity",
+    "IoT",
+    "Test",
+    "AI",
+    "Agent"
+  ],
+  "author": "jakub.drewniak@cumulocity.com",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.111.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "yaml": "^2.9.0",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/yargs": "^17.0.33",
+    "cypress": "^14.5.4",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.0"
+  }
+}
