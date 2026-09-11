@@ -89,6 +89,11 @@ When no probe has run, write the flow with `collect` steps at the points you nee
 the whole flow: a second is needed only when knowing a selector changes which *path* is taken,
 not merely which string is written.
 
+**Scope every collect to a component, not to the page.** `body` and `main` are not scopes: a
+collect stops at 400 nodes, so a page-wide one is truncated before it reaches what you were
+looking for, and the summary you get back is a slice of what survived. Name the component -
+`c8y-event-list`, `c8y-event-details` - and collect it whole.
+
 **Collect before you guess.** A probe that dies partway keeps everything it already collected,
 which is what makes a wrong provisional guess cost progress rather than the whole run - but only
 if a collect came first. Put a `collect` immediately after the navigation that reaches a new

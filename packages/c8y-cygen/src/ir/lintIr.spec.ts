@@ -173,6 +173,39 @@ describe("the broken-file corpus", () => {
     expect(messages(input)).toMatch(/unbound runtime reference '\$\{deviceIdentifier\}'/);
   });
 
+  it("catches a bare selector where a Cypress expression belongs", () => {
+    // Measured: the model wrote resolved: "c8y-tabs-outlet", the probe back-end passed a
+    // resolved target through untouched, and the emitted spec said c8y-tabs-outlet.should(...)
+    // - a bare identifier. "c8y is not defined", one probe run spent.
+    const input = specInput((ir) => {
+      (ir.steps[4] as IrStep).settle!.target = {
+        resolved: "c8y-tabs-outlet",
+        fromRow: "events-page#1",
+      };
+    });
+
+    expect(messages(input)).toMatch(/is not a Cypress expression/);
+  });
+
+  it("checks a resolved target in probe mode too, not only in spec mode", () => {
+    // Probe mode used to skip every resolved-target check, which is the same fail-open shape as
+    // the spec back-end emitting null.click() for a provisional.
+    const ir = b0ProbeIr();
+    (ir.steps[5] as IrStep).click!.target = { resolved: "main", fromRow: "events-page#1" };
+
+    const result = lintIr({
+      ir,
+      mode: "probe",
+      conventions: b0Conventions(),
+      contract: b0Contract(),
+      facts: b0Facts(),
+    });
+
+    expect(result.errors.map((e) => e.message).join(" ")).toMatch(
+      /is not a Cypress expression/
+    );
+  });
+
   it("catches a CSS selector put where a text regex belongs", () => {
     // Measured: the model wrote matches: "[data-cy='x'], c8y-device-details", which is a valid
     // selector and an invalid character class. The probe run died on it and collected nothing.

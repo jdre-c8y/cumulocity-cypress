@@ -353,9 +353,20 @@ export function lintIr(input: LintInput): LintResult {
       continue;
     }
 
-    if (mode !== "spec") continue;
+    // `resolved` is the emitted Cypress expression, not the bare selector the ladder searched
+    // for. Checked in BOTH modes and before anything else, because probe mode used to pass a
+    // resolved target through untouched - so a bare `c8y-tabs-outlet` was emitted as an
+    // identifier and the probe died with "c8y is not defined".
+    if (!/^cy\./.test(target.resolved)) {
+      add(
+        where,
+        `resolved target ${JSON.stringify(target.resolved)} is not a Cypress expression. It must read like cy.get('...'), which is what the ladder emits - a bare selector here is emitted as code.`
+      );
+      continue;
+    }
 
     if (!facts) {
+      if (mode !== "spec") continue;
       add(where, "a resolved selector cannot be checked without facts from a probe run");
       continue;
     }

@@ -1,7 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { FactsError, cacheKey, parsePayload, readFacts, summariseFacts } from "./readFacts.js";
+import {
+  FactsError,
+  cacheKey,
+  parsePayload,
+  rankRows,
+  readFacts,
+  summariseFacts,
+} from "./readFacts.js";
 import { rowsFromRawNodes, type RawNode } from "./rawNodes.js";
 
 function node(over: Partial<RawNode> & Pick<RawNode, "i" | "parent" | "tag">): RawNode {
@@ -187,6 +194,31 @@ describe("cacheKey", () => {
     expect(cacheKey(base)).toBe(cacheKey({ ...base }));
     expect(cacheKey(base)).not.toBe(cacheKey({ ...base, appVersion: "1021" }));
     expect(cacheKey(base)).not.toBe(cacheKey({ ...base, establishingPrefix: "a>c" }));
+  });
+});
+
+describe("rankRows", () => {
+  it("puts what identifies a row ahead of the page chrome around it", () => {
+    // Measured: a body-wide collect returned 399 rows and the model saw the first 60, which in
+    // document order are wrappers and layout divs. The rows carrying a data-cy were past the cut.
+    const rows = rowsFromRawNodes("x", [
+      node({ i: 0, parent: -1, tag: "body" }),
+      node({ i: 1, parent: 0, tag: "div", classes: ["wrapper"] }),
+      node({ i: 2, parent: 0, tag: "div", classes: ["container"] }),
+      node({ i: 3, parent: 0, tag: "button", attrs: { "data-cy": "save" }, text: "Save" }),
+    ]);
+
+    expect(rankRows(rows)[0]?.attrs.dataCy).toBe("save");
+  });
+
+  it("ranks a hidden row below a visible one that is otherwise alike", () => {
+    const rows = rowsFromRawNodes("x", [
+      node({ i: 0, parent: -1, tag: "body" }),
+      node({ i: 1, parent: 0, tag: "div", attrs: { "data-cy": "a" }, visibility: "hidden" }),
+      node({ i: 2, parent: 0, tag: "div", attrs: { "data-cy": "b" } }),
+    ]);
+
+    expect(rankRows(rows).map((r) => r.attrs.dataCy)).toEqual(["b", "a"]);
   });
 });
 
