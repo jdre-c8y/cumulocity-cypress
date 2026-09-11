@@ -35,6 +35,12 @@ import { assemblePrompt, readHouseRules } from "../agent/promptAssembly.js";
 import { parseIrReply, ModelError, type CallsModel } from "../agent/callsModel.js";
 import { readPackageAsset } from "../support/assets.js";
 import { WorkingArea, discardSpec, specPathForContract } from "../workarea/workingArea.js";
+import {
+  formatStrays,
+  snapshotRepoTree,
+  straysBetween,
+  type StrayReport,
+} from "../workarea/strayFiles.js";
 import { mayWrite, withHeader } from "../workarea/provenance.js";
 
 export const TOOL_VERSION = "0.2.0";
@@ -78,6 +84,11 @@ export interface RunReport {
   attempts: AttemptEntry[];
   cost: RunTotals;
   tripwireFired: boolean;
+  /**
+   * Files that appeared in the target repo's tree while the run was happening and are not the
+   * spec or the working area. Ticket 09 §5: setup writes to the repo, runs do not.
+   */
+  strays: StrayReport;
 }
 
 function modeFor(ir: IrDocument): "probe" | "spec" {
@@ -157,12 +168,17 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
   area.acquireLock();
   area.prepare();
 
+  // Taken before the first Cypress run and again after the last cleanup, so what the target
+  // repo's own plugins write lands in the difference rather than in the developer's next commit.
+  const treeBefore = snapshotRepoTree(repo);
+  let specRelative: string | null = null;
+
   try {
     const contract = parseScenarioContract(
       fs.readFileSync(path.join(repo, options.contractPath), "utf8"),
       options.contractPath
     );
-    const specRelative = specPathForContract(options.contractPath);
+    specRelative = specPathForContract(options.contractPath);
     const specAbsolute = path.join(repo, specRelative);
     const baseConventions = loadConventions(options.conventionsPath);
     const conventions: EffectiveConventions = resolveForSpecPath(baseConventions, specRelative);
@@ -488,6 +504,14 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
       discardSpec(specAbsolute);
     }
 
+    const strays = straysBetween(treeBefore, snapshotRepoTree(repo), [specRelative]);
+    if (strays.strays.length > 0) {
+      notes.push(
+        `${strays.strays.length} file(s) outside .cygen/ changed in the target repo while the ` +
+          `run ran, and none of them is the spec: ${strays.strays.map((s) => s.path).join(", ")}`
+      );
+    }
+
     const cost = totals(attemptLog.all());
     if (budget.tripwireFired()) {
       notes.push(
@@ -525,7 +549,14 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
       attempts: attemptLog.all(),
       cost,
       tripwireFired: budget.tripwireFired(),
+      strays,
     };
+  } catch (e) {
+    // Ticket 12 guarantees dying partway is normal, so this is the common path, not the rare
+    // one - and it is precisely when a plugin's leftovers would otherwise reach a commit
+    // unmentioned. There is no RunReport to carry them, so they go out through the log.
+    log(formatStrays(straysBetween(treeBefore, snapshotRepoTree(repo), specRelative ? [specRelative] : [])));
+    throw e;
   } finally {
     area.releaseLock();
   }
@@ -546,5 +577,7 @@ export function formatReport(report: RunReport): string {
         `${report.cost.totalRuns} Cypress run(s), ${report.cost.modelTurns} model turn(s)`
     );
   }
+  lines.push("", formatStrays(report.strays));
   return lines.join("\n");
 }
+

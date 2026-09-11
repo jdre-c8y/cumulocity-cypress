@@ -78,7 +78,7 @@ stale line as a separate correction rather than editing a file that was frozen o
 | Attempt log | `attempt/` | append-only, kept in full, one entry per iteration |
 | Budget | `budget/` | Cypress runs, and model turns beside them |
 | Scorer | `scorer/` | axis A and axis B; C and D go to a human |
-| Working area | `workarea/` | `.cygen/`, the lock, the output path, the provenance header |
+| Working area | `workarea/` | `.cygen/`, the lock, the output path, the provenance header, the stray-file check |
 
 ## Two constraints on this package's own code
 

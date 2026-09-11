@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { runScenario, formatReport, type RunOptions } from "./runScenario.js";
 import { PRICE_TABLE_VERSION } from "../pricing/modelPricing.js";
 import { packagePath } from "../support/assets.js";
@@ -35,6 +36,14 @@ function makeRepo(): string {
     "# e2e house rules\n\nPrefer data-cy.\n"
   );
   fs.writeFileSync(path.join(repo, "package.json"), '{"name":"fake-target"}\n');
+  return repo;
+}
+
+/** The stray check reads the target repo's git tree, so exercising it needs a real one. */
+function makeGitRepo(): string {
+  const repo = makeRepo();
+  fs.writeFileSync(path.join(repo, ".gitignore"), ".cygen/\n");
+  execFileSync("git", ["init", "-q"], { cwd: repo });
   return repo;
 }
 
@@ -67,10 +76,23 @@ class ScriptedModel implements CallsModel {
 class ScriptedCypress implements RunsCypress {
   readonly requests: RunRequest[] = [];
 
-  constructor(private readonly specRunPasses: boolean) {}
+  constructor(
+    private readonly specRunPasses: boolean,
+    /**
+     * A repo-relative path the run writes as a side effect, standing in for a plugin the target
+     * repo registers. `cypress-failed-log` hard-codes `cypress/logs/`, so no configuration key
+     * reaches it and nothing the tool passes can redirect it.
+     */
+    private readonly pluginWrites?: string
+  ) {}
 
   async run(request: RunRequest): Promise<CypressRunResult> {
     this.requests.push({ ...request });
+    if (this.pluginWrites) {
+      const file = path.join(request.targetRepo, this.pluginWrites);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, '{"testError":"..."}\n');
+    }
     const isProbe = request.specPath.includes(".cygen");
     if (isProbe) {
       const dir = request.env?.["c8yCygenFactsDir"] as string;
@@ -375,5 +397,106 @@ describe("the report", () => {
     );
 
     expect(text).toContain("stopped because:");
+  });
+});
+
+describe("files the run did not mean to write", () => {
+  it("names what a plugin of the target repo's own wrote into its tree", async () => {
+    // Defect nine, as it happened: probe runs fail routinely, and each failure left a JSON file
+    // carrying the developer's email address in a tracked directory.
+    const repo = makeGitRepo();
+
+    const report = await runScenario(
+      options(repo, {
+        runsCypress: new ScriptedCypress(true, "cypress/logs/failed-events.json"),
+      })
+    );
+
+    expect(report.strays.strays).toEqual([
+      { path: "cypress/logs/failed-events.json", kind: "added" },
+    ]);
+  });
+
+  it("does not name the spec, which is the one file a run is asked to write", async () => {
+    const repo = makeGitRepo();
+
+    const report = await runScenario(options(repo));
+
+    expect(report.strays.strays).toEqual([]);
+    expect(report.strays.unavailable).toBeUndefined();
+  });
+
+  it("does not name the working area, even when the repo forgot to ignore it", async () => {
+    const repo = makeGitRepo();
+    fs.rmSync(path.join(repo, ".gitignore"));
+
+    const report = await runScenario(options(repo));
+
+    expect(report.strays.strays).toEqual([]);
+  });
+
+  it("says it could not tell, rather than reporting a clean tree, where git refuses", async () => {
+    const repo = makeRepo();
+    fs.writeFileSync(path.join(repo, ".git"), "not a gitfile\n");
+
+    const report = await runScenario(options(repo));
+
+    expect(report.strays.unavailable).toBeTruthy();
+    expect(formatReport(report)).toContain("stray files        UNKNOWN");
+  });
+
+  it("prints the count on a clean run too, so the next non-zero one means something", async () => {
+    const repo = makeGitRepo();
+
+    const text = formatReport(await runScenario(options(repo)));
+
+    expect(text).toContain("stray files        0");
+  });
+
+  it("prints each stray, and does not delete it", async () => {
+    const repo = makeGitRepo();
+
+    const report = await runScenario(
+      options(repo, {
+        runsCypress: new ScriptedCypress(true, "cypress/logs/failed-events.json"),
+      })
+    );
+
+    expect(formatReport(report)).toContain("cypress/logs/failed-events.json");
+    expect(fs.existsSync(path.join(repo, "cypress/logs/failed-events.json"))).toBe(true);
+  });
+
+  it("carries the finding into the score's notes, not only into stdout", async () => {
+    // notes is what a harness reading report.score keeps. Leaving strays out of it would make
+    // ticket 09's invariant measured but unrecorded.
+    const repo = makeGitRepo();
+
+    const report = await runScenario(
+      options(repo, {
+        runsCypress: new ScriptedCypress(true, "cypress/logs/failed-events.json"),
+      })
+    );
+
+    expect(report.score?.notes.join(" ")).toContain("cypress/logs/failed-events.json");
+  });
+
+  it("still reports them when the run dies partway, which ticket 12 calls normal", async () => {
+    const repo = makeGitRepo();
+    const lines: string[] = [];
+    // A boundary that writes into the repo and then throws: a crashed run has no RunReport to
+    // carry the finding, and this is exactly when it would otherwise reach a commit unmentioned.
+    const exploding: RunsCypress = {
+      async run(request: RunRequest): Promise<CypressRunResult> {
+        fs.mkdirSync(path.join(request.targetRepo, "cypress/logs"), { recursive: true });
+        fs.writeFileSync(path.join(request.targetRepo, "cypress/logs/failed-x.json"), "{}");
+        throw new Error("Electron died");
+      },
+    };
+
+    await expect(
+      runScenario(options(repo, { runsCypress: exploding, log: (l) => lines.push(l) }))
+    ).rejects.toThrow("Electron died");
+
+    expect(lines.join("\n")).toContain("cypress/logs/failed-x.json");
   });
 });
