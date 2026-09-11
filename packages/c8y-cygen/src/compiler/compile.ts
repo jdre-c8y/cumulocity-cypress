@@ -24,6 +24,7 @@ import {
   verbOf,
   type AssertBody,
   type Cardinality,
+  emitsLengthAssertion,
   type IrDocument,
   type IrStep,
   type IrTarget,
@@ -46,6 +47,11 @@ export interface CompileInput {
   ir: IrDocument;
   mode: CompileMode;
   conventions: EffectiveConventions;
+  /**
+   * Grep tags for the emitted `it`, as the contract's author declared them. Spec mode only.
+   * The tool never derives these - see ScenarioContract.tags for the measurement that settled it.
+   */
+  itTags?: string[];
   /** Tool version, for the provenance header. Spec mode only. */
   toolVersion?: string;
 }
@@ -56,9 +62,7 @@ function cardinalityAssertion(cardinality: Cardinality): string | null {
   if ("atLeast" in cardinality) {
     return `.should('have.length.at.least', ${cardinality.atLeast})`;
   }
-  // Cypress already fails a chain that resolves to nothing, and the corpus does not write
-  // .should('have.length', 1) on every step. Emitting one would be correct and foreign.
-  if (cardinality.exactly === 1) return null;
+  if (!emitsLengthAssertion(cardinality)) return null;
   return `.should('have.length', ${cardinality.exactly})`;
 }
 
@@ -74,13 +78,8 @@ function targetExpr(target: IrTarget, mode: CompileMode, stepId: string): string
   return `cy.c8yCygenProvisional(${emitString(stepId)}, ${JSON.stringify(target.provisional)})`;
 }
 
-function withTimeout(expr: string, timeoutMs: number | undefined): string {
-  if (timeoutMs === undefined) return expr;
-  return expr.replace(/\)$/, `, { timeout: ${timeoutMs} })`);
-}
-
 function emitSettle(body: SettleBody, mode: CompileMode, stepId: string): string {
-  const base = withTimeout(targetExpr(body.target, mode, stepId), body.timeoutMs);
+  const base = targetExpr(body.target, mode, stepId);
   const cardinality = cardinalityAssertion(body.cardinality ?? { exactly: 1 });
   // A declared cardinality is emitted, not merely checked at resolution time. That is what
   // turns the Grid-versus-List hazard into "expected 3, found 1" at run time instead of a
@@ -93,7 +92,7 @@ function emitSettle(body: SettleBody, mode: CompileMode, stepId: string): string
 }
 
 function emitAssert(body: AssertBody, ctx: EmitContext, mode: CompileMode, stepId: string): string {
-  const base = withTimeout(targetExpr(body.target, mode, stepId), body.timeoutMs);
+  const base = targetExpr(body.target, mode, stepId);
   const operand = emitValue(body.operand, ctx);
   const cardinality = cardinalityAssertion(body.cardinality ?? { exactly: 1 }) ?? "";
 
@@ -200,6 +199,42 @@ function needsTimePreamble(emitted: string): boolean {
   return /\bdayjs\b/.test(emitted);
 }
 
+/**
+ * The removal for one created thing: which capture holds its id, and the repo's own snippet for
+ * deleting it.
+ *
+ * cumulocity-ui has no `cy.deleteDevice`, so `createDevice` names `inventoryCascadeDelete` -
+ * a hand-written cascade delete the conventions file records rather than papers over. The IR
+ * never carries the call; it only says which capture holds the id.
+ */
+interface Removal {
+  /** The capture the created id is bound to, e.g. `deviceId`. */
+  idFrom: string;
+  /** The module-scoped name the afterEach reads, e.g. `createdDeviceId`. */
+  holder: string;
+  snippet: string;
+}
+
+function removalsFor(ir: IrDocument, conventions: EffectiveConventions): Removal[] {
+  const snippets = (conventions.effectiveIdioms.teardown ?? {}) as Record<string, unknown>;
+  const removals: Removal[] = [];
+  for (const step of allSteps(ir)) {
+    const idFrom = step.undo?.idFrom;
+    const name = step.callRepoHelper?.name;
+    if (!idFrom || !name) continue;
+    const move = conventions.commands.blessed.find((m) => m.name === name);
+    const key = move?.teardown;
+    const snippet = key ? snippets[key] : undefined;
+    if (typeof snippet !== "string") continue;
+    removals.push({
+      idFrom,
+      holder: `created${idFrom.charAt(0).toUpperCase()}${idFrom.slice(1)}`,
+      snippet,
+    });
+  }
+  return removals;
+}
+
 export function compile(input: CompileInput): CompileResult {
   const { ir, mode, conventions } = input;
   const runtime = new Set<string>(Object.keys(ir.vars ?? {}));
@@ -257,6 +292,11 @@ export function compile(input: CompileInput): CompileResult {
 
   // The model writes a flat step list; the compiler is where the .then() blocks go. Nesting is
   // a fact about Cypress's async chain, not a fact about the test.
+  // Only the spec back-end resets anything. A probe spec is thrown away with the run that made
+  // it, and a probe that dies partway never reaches an afterEach anyway - which is why the
+  // run manifest, not the emitted spec, is what covers a crashed run.
+  const removals = mode === "spec" ? removalsFor(ir, conventions) : [];
+
   let depth = 0;
   const closers: string[] = [];
 
@@ -280,6 +320,14 @@ export function compile(input: CompileInput): CompileResult {
     push(step, opened, depth);
     closers.push(indentBlock("});", depth));
     depth += 1;
+    // The holder is assigned where the capture binds, never earlier: before this line the id
+    // does not exist, and an afterEach that fired then would delete nothing while looking as
+    // though it had.
+    for (const removal of removals) {
+      if (removal.idFrom === step.captures) {
+        body.push(indentBlock(`${removal.holder} = ${step.captures};`, depth));
+      }
+    }
   }
 
   while (closers.length > 0) {
@@ -301,9 +349,22 @@ export function compile(input: CompileInput): CompileResult {
 
   const suite = mode === "probe" ? `${ir.meta.suite} [probe]` : ir.meta.suite;
   const title = mode === "probe" ? `probe: ${ir.meta.title}` : ir.meta.title;
+  // Both tag sets are facts the tool is given, never judgements it makes. The describe tags
+  // come from the scout's mined placement table - choosing the directory chose them - and the
+  // it tags come from the contract's author.
+  // One tag is a bare string: this repo writes it that way 229 times against 4 one-element
+  // arrays, and the oracle graded against writes `{ tags: '@requiresBackend' }`.
+  const tagList = (tags: string[]): string =>
+    tags.length === 1
+      ? `{ tags: ${emitString(tags[0] as string)} }`
+      : `{ tags: [${tags.map(emitString).join(", ")}] }`;
   const describeOptions =
-    mode === "spec" && ir.meta.tags?.length
-      ? `, { tags: [${ir.meta.tags.map((t) => emitString(t)).join(", ")}] }`
+    mode === "spec" && conventions.suiteTags.length > 0
+      ? `, ${tagList(conventions.suiteTags)}`
+      : "";
+  const itOptions =
+    mode === "spec" && (input.itTags ?? []).length > 0
+      ? `, ${tagList(input.itTags as string[])}`
       : "";
 
   const head: string[] = [];
@@ -320,13 +381,35 @@ export function compile(input: CompileInput): CompileResult {
   head.push(...preamble.inlineSources);
   if (preamble.inlineSources.length > 0) head.push("");
 
+  const holders = removals.map((r) => `${INDENT}let ${r.holder}: string | undefined;`);
+  const afterEach =
+    removals.length > 0
+      ? [
+          `${INDENT}afterEach(() => {`,
+          ...removals.flatMap((r) => [
+            `${INDENT}${INDENT}if (${r.holder}) {`,
+            ...r.snippet
+              .trimEnd()
+              .split("\n")
+              .map((line) => `${INDENT}${INDENT}${INDENT}${line.replace("${id}", `\${${r.holder}}`)}`),
+            // Cleared after the delete so a second it() cannot delete the first one's device.
+            `${INDENT}${INDENT}${INDENT}${r.holder} = undefined;`,
+            `${INDENT}${INDENT}}`,
+          ]),
+          `${INDENT}});`,
+          "",
+        ]
+      : [];
+
   const text = [
     ...head,
     `describe(${emitString(suite)}${describeOptions}, () => {`,
+    ...(holders.length > 0 ? [...holders, ""] : []),
     ...(dedupedSetup.length > 0
       ? [`${INDENT}beforeEach(() => {`, ...dedupedSetup, `${INDENT}});`, ""]
       : []),
-    `${INDENT}it(${emitString(title)}, () => {`,
+    ...afterEach,
+    `${INDENT}it(${emitString(title)}${itOptions}, () => {`,
     ...declarations.map((d) => indentBlock(d, 2)),
     ...(declarations.length > 0 ? [""] : []),
     ...body.map((l) => (l === "" ? "" : indentBlock(l, 2))),

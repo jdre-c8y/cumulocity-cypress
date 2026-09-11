@@ -87,6 +87,133 @@ describe("the broken-file corpus", () => {
   // breaking the linter's verb detection and the compiler's verb lookup at the same time -
   // one capability, three breakages, nothing failing.
 
+  it("catches a create step that declares no undo, so nothing resets what it made", () => {
+    // Ticket 02 Q7(c) is a rule about the emitted spec, and a rule nothing checks is a wish.
+    // createDevice names a teardown snippet in the conventions file, so the repo knows how to
+    // remove what it makes; the IR only has to say which capture holds the id.
+    const input = specInput((ir) => {
+      delete ir.steps[0]?.undo;
+    });
+
+    expect(messages(input)).toMatch(/make-device.*undo/s);
+  });
+
+  it("catches an undo pointing at a name nothing binds", () => {
+    const input = specInput((ir) => {
+      (ir.steps[0] as IrStep).undo = { idFrom: "notBoundAnywhere" };
+    });
+
+    expect(messages(input)).toMatch(/notBoundAnywhere/);
+  });
+
+  it("asks for no undo from a move the repo cannot remove", () => {
+    // getDeviceIdByName is real-state but read-only, and createMockedDevice makes nothing to
+    // delete. Neither names a teardown snippet, so neither is asked for one.
+    const input = specInput((ir) => {
+      delete ir.steps[1]?.undo;
+    });
+
+    expect(messages(input)).not.toMatch(/get-device-id.*undo/s);
+  });
+
+  it("catches a settle a following click already performs", () => {
+    // A click waits for actionability, which includes visibility, so a settle(visible) on the
+    // same target is two lines that buy nothing. Measured on the first scored run.
+    const input = specInput((ir) => {
+      ir.steps.splice(5, 0, {
+        id: "settle-first-event",
+        settle: {
+          target: {
+            resolved: "cy.get('[data-cy=\"c8y-events-list--timeline-item\"]')",
+            fromRow: "events-page#3",
+          },
+          state: "visible",
+        },
+      });
+    });
+
+    expect(messages(input)).toMatch(/steps\.settle-first-event: .*already/);
+  });
+
+  it("keeps a settle(visible) before an assertion, which does not check visibility", () => {
+    // `.should('contain.text')` retries until the text matches; it never checks visibility. A
+    // panel left in the DOM at display:none with the right text would start passing.
+    const input = specInput((ir) => {
+      ir.steps.splice(6, 0, {
+        id: "settle-source",
+        settle: {
+          target: {
+            resolved: "cy.get('[data-cy=\"c8y-event-details--source-wrapper\"]')",
+            fromRow: "event-detail#1",
+          },
+          state: "visible",
+        },
+      });
+    });
+
+    expect(messages(input)).not.toMatch(/steps\.settle-source: .*already/);
+  });
+
+  it("catches a settle(exists) before an assertion, which does imply existence", () => {
+    const input = specInput((ir) => {
+      ir.steps.splice(6, 0, {
+        id: "settle-source",
+        settle: {
+          target: {
+            resolved: "cy.get('[data-cy=\"c8y-event-details--source-wrapper\"]')",
+            fromRow: "event-detail#1",
+          },
+          state: "exists",
+        },
+      });
+    });
+
+    expect(messages(input)).toMatch(/steps\.settle-source: .*already/);
+  });
+
+  it("keeps a settle carrying a length assertion nothing else makes", () => {
+    const input = specInput((ir) => {
+      ir.steps.splice(5, 0, {
+        id: "settle-three",
+        settle: {
+          target: {
+            resolved: "cy.get('[data-cy=\"c8y-events-list--timeline-item\"]')",
+            fromRow: "events-page#3",
+          },
+          state: "visible",
+          cardinality: { exactly: 3 },
+        },
+      });
+    });
+
+    expect(messages(input)).not.toMatch(/steps\.settle-three: .*already/);
+  });
+
+  it("leaves a settle alone when the next step targets something else", () => {
+    // The target comparison's own regression case: redundant in every way except the target.
+    const input = specInput((ir) => {
+      ir.steps.splice(5, 0, {
+        id: "settle-elsewhere",
+        settle: {
+          target: { resolved: "cy.get('c8y-something-else')", fromRow: "events-page#1" },
+          state: "exists",
+        },
+      });
+    });
+
+    expect(messages(input)).not.toMatch(/steps\.settle-elsewhere: .*already/);
+  });
+
+  it("names the key ajv objected to, rather than leaving the model to guess", () => {
+    // A bare "must NOT have additional properties" costs an iteration per guess, and this is
+    // exactly what a model carrying a habit from a removed field will hit.
+    const input = specInput((ir) => {
+      (ir.steps[4] as unknown as Record<string, unknown>)["timeoutMs"] = 20_000;
+    });
+
+    expect(messages(input)).toMatch(/'timeoutMs' is not a field of this object/);
+  });
+
   it("catches a probe-only verb in a spec-mode IR", () => {
     const input = specInput((ir) => {
       ir.steps.push({ id: "sneaky", collect: { label: "x", within: "body" } });
@@ -125,7 +252,7 @@ describe("the broken-file corpus", () => {
 
   it("catches an unknown verb", () => {
     const input = specInput((ir) => {
-      (ir.steps[3] as Record<string, unknown>)["teleport"] = { to: "x" };
+      (ir.steps[3] as unknown as Record<string, unknown>)["teleport"] = { to: "x" };
     });
 
     // An unknown key is refused by the schema before the linter sees it; either layer is fine,

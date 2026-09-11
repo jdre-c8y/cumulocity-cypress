@@ -19,7 +19,24 @@
       "properties": {
         "specRoot": { "type": "string" },
         "suffix": { "type": "string" },
-        "directories": { "type": "object" }
+        "directories": {
+          "description": "Per team directory: how many specs it holds, and the grep tag its describes carry. The tag goes into every spec generated for the directory, so it is shaped here rather than trusted - unvalidated, this table emitted 'platformTeam' without its @, and a number crashed the compiler with no key named.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "specs": { "type": "integer", "minimum": 0 },
+              "tag": {
+                "anyOf": [
+                  { "type": "null" },
+                  { "type": "string", "pattern": "^@[A-Za-z0-9_-]+$" },
+                  { "type": "array", "items": { "type": "string", "pattern": "^@[A-Za-z0-9_-]+$" } }
+                ]
+              }
+            }
+          }
+        }
       }
     },
 

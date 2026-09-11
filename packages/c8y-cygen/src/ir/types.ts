@@ -82,7 +82,6 @@ export interface SettleBody {
   target: IrTarget;
   state: "visible" | "exists";
   cardinality?: Cardinality;
-  timeoutMs?: number;
 }
 
 export interface AssertBody {
@@ -93,7 +92,6 @@ export interface AssertBody {
   compare: Comparator;
   operand: IrValue;
   cardinality?: Cardinality;
-  timeoutMs?: number;
 }
 
 export interface CallRepoHelperBody {
@@ -125,6 +123,14 @@ export interface IrStep {
   callRepoHelper?: CallRepoHelperBody;
   request?: RequestBody;
   collect?: CollectBody;
+  /**
+   * How to remove what this step created. Ticket 02 Q7(c): reset is per `it()`, lives in the
+   * spec, and covers only state the spec itself made - the tool never resets what it did not
+   * create. `idFrom` names the capture that holds the created thing's id; the removal itself
+   * comes from the blessed move's own `teardown` key in the conventions file, so the IR never
+   * carries a delete call.
+   */
+  undo?: { idFrom: string };
 }
 
 export const VERBS = [
@@ -161,7 +167,6 @@ export interface IrMeta {
   suite: string;
   title: string;
   style: IrStyle;
-  tags?: string[];
 }
 
 export interface IrDocument {
@@ -179,6 +184,20 @@ export function verbOf(step: IrStep): Verb | undefined {
 
 export function verbsOf(step: IrStep): Verb[] {
   return VERBS.filter((v) => step[v] !== undefined);
+}
+
+/**
+ * Whether a declared cardinality becomes a real length assertion in the emitted spec.
+ *
+ * `exactly: 1` does not: Cypress already fails a chain that resolves to nothing, and the corpus
+ * does not write `.should('have.length', 1)` on every step. The compiler and the linter both
+ * need this answer - the compiler to emit, the linter to know whether deleting a step would
+ * lose an assertion - so it lives in one place.
+ */
+export function emitsLengthAssertion(cardinality: Cardinality | undefined): boolean {
+  if (!cardinality) return false;
+  if ("atLeast" in cardinality) return true;
+  return cardinality.exactly !== 1;
 }
 
 export function targetOf(step: IrStep): IrTarget | undefined {

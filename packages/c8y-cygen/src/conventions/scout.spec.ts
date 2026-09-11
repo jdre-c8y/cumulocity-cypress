@@ -66,6 +66,48 @@ describe("the deterministic miner", () => {
     expect(mined.placement.directories["platformTeam"]?.tag).toBeNull();
   });
 
+  it("takes the describe's tags, not the first tags: it happens to find", () => {
+    // Measured against the host repo: authentication/ was mined as '@requiresBackend' because
+    // that is the first `tags:` in the first file walked - an it-level tag. Every describe in
+    // that directory says '@authentication'. The mined value went into a reviewed file and from
+    // there into every spec the directory would generate.
+    const itLevelFirst = `
+describe('Validate login form', () => {
+  it('logs in', { tags: '@requiresBackend' }, () => {});
+});
+describe('Validate login with Basic Auth', { tags: '@authentication' }, () => {});
+`;
+    const repo = repoWith({ "cypress/e2e/authentication/login.cy.ts": itLevelFirst });
+
+    expect(mineConventions(repo).placement.directories["authentication"]?.tag).toBe(
+      "'@authentication'"
+    );
+  });
+
+  it("ignores a tags: key inside a fixture literal, which is not a grep tag at all", () => {
+    const fixture = `
+const version: IApplicationVersion = { version: '1', tags: ['default', 'latest'] };
+describe('branding', { tags: '@docs' }, () => {});
+`;
+    const repo = repoWith({ "cypress/e2e/documentation-screenshots/branding.cy.ts": fixture });
+
+    expect(mineConventions(repo).placement.directories["documentation-screenshots"]?.tag).toBe(
+      "'@docs'"
+    );
+  });
+
+  it("takes the directory's most common tagging, not whichever file was walked first", () => {
+    // One odd file out of many must not set the tag for the whole directory.
+    const repo = repoWith({
+      // The odd one sorts first, so first-file-wins would pick it.
+      "cypress/e2e/team/a-odd.cy.ts": "describe('c', { tags: '@oddOneOut' }, () => {});",
+      "cypress/e2e/team/b.cy.ts": "describe('a', { tags: '@team' }, () => {});",
+      "cypress/e2e/team/c.cy.ts": "describe('b', { tags: '@team' }, () => {});",
+    });
+
+    expect(mineConventions(repo).placement.directories["team"]?.tag).toBe("'@team'");
+  });
+
   it("reads the API-setup idiom off what the repo writes, not off a rule", () => {
     // Which of cy.request and cy.c8yclient a repo uses is a conventions fact. The safety
     // property is anchoring, and it applies to both.

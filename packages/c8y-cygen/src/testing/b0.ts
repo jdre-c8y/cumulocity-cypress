@@ -161,7 +161,6 @@ export function b0Ir(): IrDocument {
       suite: "Tests for device events",
       title: "Verify the event for a device shows respective event details",
       style: "integration",
-      tags: ["@deviceManagementTeam", "@dataAndControlTeam", "@requiresBackend"],
     },
     vars: {
       deviceName: { builder: "uniqueName", args: { prefix: "e2eDeviceToTestEvents" } },
@@ -173,6 +172,7 @@ export function b0Ir(): IrDocument {
           name: "createDevice",
           args: [{ object: { name: { ref: "deviceName" } } }],
         },
+        undo: { idFrom: "deviceId" },
       },
       {
         id: "get-device-id",

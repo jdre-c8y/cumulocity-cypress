@@ -26,6 +26,7 @@ import {
   VERBS,
   allSteps,
   cardinalityOf,
+  emitsLengthAssertion,
   isProvisional,
   stepPath,
   targetOf,
@@ -92,11 +93,25 @@ function getValidator(): ValidateFunction {
   return validator;
 }
 
+/**
+ * ajv's own text plus whichever key it objected to. "must NOT have additional properties" alone
+ * leaves the model to guess which of a step's keys to drop, and each guess costs an iteration -
+ * which is exactly what happens when a field is removed from the schema and the model keeps its
+ * old habit. Every hand-written message in this linter names the thing it is about.
+ */
 function schemaErrors(errors: ErrorObject[] | null | undefined): LintProblem[] {
-  return (errors ?? []).map((e) => ({
-    where: e.instancePath || "/",
-    message: `schema: ${e.message ?? "invalid"}`,
-  }));
+  return (errors ?? []).map((e) => {
+    const params = e.params as { additionalProperty?: string; allowedValues?: unknown[] };
+    const detail = params?.additionalProperty
+      ? ` ('${params.additionalProperty}' is not a field of this object)`
+      : params?.allowedValues
+        ? ` (allowed: ${params.allowedValues.join(", ")})`
+        : "";
+    return {
+      where: e.instancePath || "/",
+      message: `schema: ${e.message ?? "invalid"}${detail}`,
+    };
+  });
 }
 
 /** Walks every value in a tree, so a `ref` nested three objects deep is still seen. */
@@ -401,6 +416,82 @@ export function lintIr(input: LintInput): LintResult {
       "this IR has zero DOM steps, so it is not a UI e2e spec. The contract genre - a roundtrip asserted by a recorded response and a schema - is a separate effort, and v2 refuses it rather than attempting it.",
       "zero-dom-steps"
     );
+  }
+
+  // --- reset what you created, and only that -------------------------------------------
+  // Ticket 02 Q7(c): reset is per `it()`, lives in the spec, and covers only state the spec
+  // itself made. A rule nothing checks is a wish, so it is checked here - and only where the
+  // repo has actually recorded how to remove the thing. A blessed move with no `teardown` key
+  // is one the repo cannot undo (a read-only lookup, or a fabrication that made nothing), and
+  // demanding an undo for it would be the tool inventing a delete, which is the one thing the
+  // closed vocabulary exists to prevent.
+  if (mode === "spec") {
+    const bound = new Set<string>([
+      ...Object.keys(ir.vars ?? {}),
+      ...allSteps(ir)
+        .map((s) => s.captures)
+        .filter((c): c is string => typeof c === "string"),
+    ]);
+    for (const step of allSteps(ir)) {
+      const helper = step.callRepoHelper?.name;
+      const move = helper
+        ? conventions.commands.blessed.find((m) => m.name === helper)
+        : undefined;
+      if (step.undo && !bound.has(step.undo.idFrom)) {
+        add(
+          `steps.${step.id}`,
+          `undo.idFrom names '${step.undo.idFrom}', which nothing in this IR binds. It must be a capture holding the created thing's id.`
+        );
+      }
+      if (move?.teardown && !step.undo) {
+        add(
+          `steps.${step.id}`,
+          `'${helper}' creates real state and the conventions file records how this repo removes it ('${move.teardown}'). Add undo.idFrom naming the capture that holds the new id, so the spec resets what it created.`
+        );
+      }
+    }
+  }
+
+  // --- settles the next command already performs ---------------------------------------
+  // A settle emits `cy.get(X).should('be.visible')`. It is redundant only where the step that
+  // follows makes the very same guarantee on the very same target, which is narrower than it
+  // first looks:
+  //
+  //   - a `click` waits for actionability, and actionability includes visibility, so a
+  //     settle(visible) or settle(exists) before a click on the same target adds nothing;
+  //   - an assertion retries until it holds, which implies the element exists - but NOT that it
+  //     is visible. `.should('contain.text')` passes on a display:none panel carrying the right
+  //     text, so a settle(visible) before an assertion is a real check and stays.
+  //
+  // A settle whose cardinality becomes a length assertion is never redundant either: nothing
+  // else in the chain makes that claim, and it is the Grid-versus-List guard.
+  //
+  // A settle that satisfies an outcome stays regardless: it IS the assertion, and deleting it
+  // would cost axis B.
+  if (mode === "spec") {
+    const satisfying = new Set(ir.outcomes.flatMap((o) => o.satisfiedBy));
+    // setup and steps are two sequences, not one: setup compiles into beforeEach, so its last
+    // step is not adjacent to the first step of the body.
+    for (const sequence of [ir.setup ?? [], ir.steps]) {
+      for (let i = 0; i < sequence.length - 1; i++) {
+        const step = sequence[i] as IrStep;
+        const next = sequence[i + 1] as IrStep;
+        if (!step.settle || satisfying.has(step.id)) continue;
+        if (emitsLengthAssertion(step.settle.cardinality)) continue;
+        const here = step.settle.target;
+        const there = targetOf(next);
+        if (!there || isProvisional(here) || isProvisional(there)) continue;
+        if (here.resolved !== there.resolved) continue;
+        const impliedByNext = next.click !== undefined || step.settle.state === "exists";
+        if (!impliedByNext) continue;
+        add(
+          `steps.${step.id}`,
+          `settles ${here.resolved}, which '${next.id}' already ${
+            next.click ? "waits for - a click retries until the element is actionable, which means visible" : "implies - an assertion retries until the element exists"
+          }. Delete this step; it satisfies no outcome and asserts nothing the next line does not.`
+        );
+      }
+    }
   }
 
   // --- outcomes, and the anti-gaming guardrail ----------------------------------------

@@ -223,6 +223,20 @@ describe("the loop, driven end to end", () => {
     expect(spec).toContain("cy.visitAndWaitUntilPageLoad(");
   });
 
+  it("tags the it from the contract and the describe from the directory", async () => {
+    // The two tags come from two different places and neither is the model's to choose. Getting
+    // the it tag wrong runs the spec in a CI lane nobody watches, which no assertion catches.
+    const repo = makeRepo();
+
+    await runScenario(options(repo));
+    const spec = fs.readFileSync(path.join(repo, SPEC), "utf8");
+
+    expect(spec).toContain(
+      "describe('Tests for device events', { tags: ['@deviceManagementTeam', '@dataAndControlTeam'] }"
+    );
+    expect(spec).toContain("{ tags: '@requiresBackend' }");
+  });
+
   it("keeps every attempt, green run included, with the diff computed rather than claimed", async () => {
     const repo = makeRepo();
 

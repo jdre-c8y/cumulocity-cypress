@@ -16,8 +16,7 @@
         "contract": { "type": "string" },
         "suite": { "type": "string" },
         "title": { "type": "string" },
-        "style": { "enum": ["integration", "mocked"] },
-        "tags": { "type": "array", "items": { "type": "string" } }
+        "style": { "enum": ["integration", "mocked"] }
       }
     },
     "vars": {
@@ -154,6 +153,12 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "captures": { "type": "string", "minLength": 1 },
+        "undo": {
+          "type": "object",
+          "required": ["idFrom"],
+          "additionalProperties": false,
+          "properties": { "idFrom": { "type": "string", "minLength": 1 } }
+        },
 
         "visit": {
           "type": "object",
@@ -176,8 +181,7 @@
           "properties": {
             "target": { "$ref": "#/definitions/target" },
             "state": { "enum": ["visible", "exists"] },
-            "cardinality": { "$ref": "#/definitions/cardinality" },
-            "timeoutMs": { "type": "integer", "minimum": 0 }
+            "cardinality": { "$ref": "#/definitions/cardinality" }
           }
         },
 
@@ -193,8 +197,7 @@
               "enum": ["equals", "includes", "matches", "withinMinutesOfNow"]
             },
             "operand": { "$ref": "#/definitions/value" },
-            "cardinality": { "$ref": "#/definitions/cardinality" },
-            "timeoutMs": { "type": "integer", "minimum": 0 }
+            "cardinality": { "$ref": "#/definitions/cardinality" }
           }
         },
 

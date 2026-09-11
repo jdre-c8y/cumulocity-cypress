@@ -1,8 +1,17 @@
-<!-- SALVAGED VERBATIM from v1: packages/c8y-cygen/test/oracle/events.scenario.md
-     on branch c8y-e2e-generation-agents. Unmodified — this is the exact contract that
-     produced v1's M7 proof, and changing it would break the regression-floor comparison.
+<!-- SALVAGED from v1: packages/c8y-cygen/test/oracle/events.scenario.md
+     on branch c8y-e2e-generation-agents.
      Oracle: cumulocity-ui/cypress/e2e/dataAndControlTeam/events.cy.ts:75
-     Benchmark id: B0 (baseline, oracle mode, integration style) -->
+     Benchmark id: B0 (baseline, oracle mode, integration style)
+
+     The six sections v1 read — Objective, Preconditions, Setup, Steps, Expected Outcomes,
+     Style — are byte-identical to the contract that produced v1's M7 proof, so the
+     regression-floor comparison still holds for everything it covered.
+
+     ADDED 2026-09-11: the '## Tags' section below. The oracle puts @requiresBackend on its
+     it(), and until this section existed no contract could say so — measured across the host
+     repo's 203 spec files, that tag is derivable from nothing the tool can see (it tracks
+     integration style at 44%, worse than a coin). Without it the generated spec runs in the
+     wrong CI lane, which is a defect no assertion inside the spec can catch. -->
 
 # Scenario: Device event appears with correct details in the event timeline
 
@@ -63,3 +72,9 @@ opens that device's event timeline and selects the event.
 
 `mocked` (default target for the MVP proof-of-loop; the scenario is written to also
 support `integration` — see the Setup note above).
+
+## Tags
+
+Grep tags for the emitted `it()`. The oracle carries this one; nothing derives it.
+
+- `@requiresBackend`

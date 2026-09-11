@@ -86,6 +86,60 @@ describe("parseScenarioContract", () => {
     );
   });
 
+  it("reads the it-level tags the author declared", () => {
+    // Measured across 203 spec files: @requiresBackend correlates with neither real-state calls
+    // nor integration style (44%, worse than chance). It is a human judgement about the
+    // scenario, so it comes from the author's contract and is never derived or guessed.
+    const withTags = `${B0}\n\n## Tags\n\n- \`@requiresBackend\`\n- \`@slow\`\n`;
+
+    expect(parseScenarioContract(withTags, "x.scenario.md").tags).toEqual([
+      "@requiresBackend",
+      "@slow",
+    ]);
+  });
+
+  it("gives no tags when the author declared none, rather than guessing one", () => {
+    expect(parseScenarioContract(B0, "x.scenario.md").tags).toEqual([]);
+  });
+
+  it("takes a comma-separated Tags line as well as a list", () => {
+    const inline = `${B0}\n\n## Tags\n\n@requiresBackend, @slow\n`;
+
+    expect(parseScenarioContract(inline, "x.scenario.md").tags).toEqual([
+      "@requiresBackend",
+      "@slow",
+    ]);
+  });
+
+  it("ignores prose above the list, so a section can explain itself", () => {
+    const withProse = `${B0}\n\n## Tags\n\nGrep tags for the emitted it(). Nothing derives them.\n\n- \`@requiresBackend\`\n`;
+
+    expect(parseScenarioContract(withProse, "x.scenario.md").tags).toEqual(["@requiresBackend"]);
+  });
+
+  it("refuses to silently drop a tag the author did not bullet", () => {
+    // The list-wins rule was meant to let prose explain the section. It also meant a tag typed
+    // without a dash vanished, which is the exact silent-wrong-lane failure this section exists
+    // to prevent.
+    const mixed = `${B0}\n\n## Tags\n\n@requiresBackend\n- \`@slow\`\n`;
+
+    expect(() => parseScenarioContract(mixed, "x.scenario.md")).toThrow(/list item/);
+  });
+
+  it("reads a Tags section that holds only an HTML comment as declaring none", () => {
+    // The module promises HTML comments pass through untouched. This was the one parser that
+    // threw on them, so a contract explaining why it has no tags could not be parsed at all.
+    const commented = `${B0}\n\n## Tags\n\n<!-- asked the team: no tag, the default lane -->\n`;
+
+    expect(parseScenarioContract(commented, "x.scenario.md").tags).toEqual([]);
+  });
+
+  it("refuses a tag that is not a grep tag, because a typo picks the wrong CI lane", () => {
+    const bad = `${B0}\n\n## Tags\n\n- requiresBackend\n`;
+
+    expect(() => parseScenarioContract(bad, "x.scenario.md")).toThrow(/@/);
+  });
+
   it("refuses a contract with no Expected Outcomes, because nothing could be scored", () => {
     const noOutcomes = "# Scenario: x\n\n## Objective\n\ndo a thing\n";
 

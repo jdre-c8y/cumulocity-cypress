@@ -44,9 +44,19 @@ minedFrom:
 placement:
   specRoot: cypress/e2e
   suffix: .cy.ts
+  # Re-mined 2026-09-11, after this table stopped being documentation and became the source of
+  # every emitted describe tag. Two entries were wrong and are corrected here: `authentication`
+  # read '@requiresBackend' (an it-level tag) where all 25 of its describes say '@authentication',
+  # and `lwm2mOpcuaTeam` read the same where its describes carry the two team tags. Both came
+  # from a miner that took the first `tags:` anywhere in the first file it walked; it now anchors
+  # on `describe(` and takes the tagging most of a directory's describes agree on.
+  #
+  # A tag here goes into every spec generated for that directory, and a wrong one puts the spec
+  # in a CI lane nobody greps - a failure no assertion inside the spec can catch. Diff this block
+  # against a fresh `cygen scout` before trusting it.
   directories:
-    appEnablementTeam: { specs: 47, tag: '@appEnablementTeam' }
-    authentication: { specs: 25, tag: '@requiresBackend' }
+    appEnablementTeam: { specs: 49, tag: '@appEnablementTeam' }
+    authentication: { specs: 25, tag: '@authentication' }
     dataAndControlTeam:
       specs: 42
       tag: ['@deviceManagementTeam', '@dataAndControlTeam']
@@ -54,7 +64,9 @@ placement:
     lpwanIntegrationTeam:
       specs: 8
       tag: ['@deviceManagementTeam', '@lpwanIntegrationTeam']
-    lwm2mOpcuaTeam: { specs: 3, tag: '@requiresBackend' }
+    lwm2mOpcuaTeam:
+      specs: 3
+      tag: ['@deviceManagementTeam', '@lwm2mOpcuaTeam']
     platformTeam: { specs: 29, tag: '@platformTeam' }
 
 # ---------------------------------------------------------------------------
@@ -312,9 +324,12 @@ idioms:
   teardown:
     style: manual
     # Honest reading of the corpus: only 27 of 200 spec files have any afterEach, and 7 create
-    # real devices with no DELETE at all. A generated spec that resets what it created will
-    # look MORE hygienic than its neighbours, which is a grading question the first scored run
-    # should raise rather than pre-decide.
+    # real devices with no DELETE at all. A generated spec that resets what it created looks
+    # MORE hygienic than its neighbours. The first scored run raised that as a grading question
+    # rather than pre-deciding it, and it was settled on 2026-09-11 in favour of ticket 02
+    # Q7(c): the spec resets what it created, per it(), and nothing else. A blessed move names
+    # its snippet below with a `teardown:` key; a move with no key is one this repo cannot undo,
+    # and nothing is emitted for it.
     inventoryCascadeDelete: |
       cy.request({
         url: `/inventory/managedObjects/${id}?cascade=true`,

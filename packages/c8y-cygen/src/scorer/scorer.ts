@@ -138,6 +138,7 @@ export function score(input: ScoreInput): Score {
       graded: "human",
       inputs: [
         "selector-ladder rung chosen where a higher rung was available",
+        "grep tags: the describe's come from the directory, the it's from the contract's '## Tags' section - a missing it tag means the contract did not declare one",
         "auth and navigation idiom matching the target repo",
         "file location and naming",
         "reuse of existing repo helpers and fixtures rather than reinventing them",

@@ -5,5 +5,11 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  // Overriding `include` alone is not enough: `exclude` is inherited, and the parent excludes
+  // `src/**/*.spec.ts` and `src/testing/**`. Without this the config named "spec" type-checks
+  // zero spec files - measured, 29 files in the program and not one of them a test - while
+  // ts-jest transpiles them with `isolatedModules`, which checks no types either. Every test in
+  // this package was outside both gates.
+  "exclude": []
 }

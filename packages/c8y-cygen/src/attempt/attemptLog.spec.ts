@@ -89,7 +89,7 @@ describe("the attempt log", () => {
           runPassed: false,
           failingStepPath: "steps[6]",
           changed: [
-            { path: "steps.check-source.settle.timeoutMs", before: undefined, after: 20000 },
+            { path: "steps.check-source.settle.target.resolved", before: "a", after: "b" },
           ],
         })
       );
@@ -97,7 +97,7 @@ describe("the attempt log", () => {
       const summary = summariseAttempts(log.all());
 
       expect(summary).toContain("iteration 1");
-      expect(summary).toContain("steps.check-source.settle.timeoutMs");
+      expect(summary).toContain("steps.check-source.settle.target.resolved");
       expect(summary).toContain("failed at steps[6]");
     });
   });

@@ -347,7 +347,7 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
         break;
       }
 
-      const compiled = compile({ ir, mode, conventions });
+      const compiled = compile({ ir, mode, conventions, itTags: contract.tags });
 
       previousSpecFailed = false;
 

@@ -7,7 +7,13 @@ import {
 const MINIMAL = `
 schemaVersion: 1
 repo: demo
-placement: { specRoot: cypress/e2e, suffix: .cy.ts }
+placement:
+  specRoot: cypress/e2e
+  suffix: .cy.ts
+  directories:
+    platformTeam: { specs: 29, tag: '@platformTeam' }
+    dataAndControlTeam: { specs: 42, tag: ['@deviceManagementTeam', '@dataAndControlTeam'] }
+    documentation-screenshots: { specs: 46, tag: null }
 formatter: { run: ['node_modules/.bin/prettier', '--write', '{file}'], configFound: null }
 commands:
   available: { source: probe, generated: true, names: [login, createDevice] }
@@ -79,6 +85,25 @@ describe("parseConventions", () => {
   });
 });
 
+describe("the directory tag table", () => {
+  const withTag = (tag: string): string =>
+    MINIMAL.replace("platformTeam: { specs: 29, tag: '@platformTeam' }", `platformTeam: { specs: 29, tag: ${tag} }`);
+
+  it("refuses a tag with no leading @, which would emit a lane nobody greps", () => {
+    expect(() => parseConventions(withTag("'platformTeam'"), "demo.yaml")).toThrow();
+  });
+
+  it("refuses a tag that is not a string at all", () => {
+    // This used to reach the compiler and die there as `value.includes is not a function`,
+    // naming neither the file nor the key.
+    expect(() => parseConventions(withTag("42"), "demo.yaml")).toThrow();
+  });
+
+  it("accepts null, which is a real answer for a directory that tags nothing", () => {
+    expect(() => parseConventions(withTag("null"), "demo.yaml")).not.toThrow();
+  });
+});
+
 describe("resolveForSpecPath", () => {
   const conventions = parseConventions(MINIMAL, "demo.yaml");
 
@@ -88,6 +113,50 @@ describe("resolveForSpecPath", () => {
     expect(e.generate).toBe(true);
     expect(e.effectiveValueBuilders.map((b) => b.id)).toEqual(["now", "uniqueName"]);
     expect(e.appliedOverrides).toEqual([]);
+  });
+
+  it("derives the describe tags from the directory, which the scout already mined", () => {
+    // Choosing the directory chooses the grep tag. Nothing derives "dataAndControlTeam" from a
+    // scenario about events, so the author chose it; the tag follows from that choice and is
+    // not a judgement the model should be making.
+    expect(
+      resolveForSpecPath(conventions, "cypress/e2e/dataAndControlTeam/events.cy.ts").suiteTags
+    ).toEqual(["@deviceManagementTeam", "@dataAndControlTeam"]);
+  });
+
+  it("accepts a directory that carries a single tag rather than a list", () => {
+    expect(
+      resolveForSpecPath(conventions, "cypress/e2e/platformTeam/x.cy.ts").suiteTags
+    ).toEqual(["@platformTeam"]);
+  });
+
+  it("gives no tags for a directory the corpus tags with none", () => {
+    expect(
+      resolveForSpecPath(conventions, "cypress/e2e/documentation-screenshots/x.cy.ts").suiteTags
+    ).toEqual([]);
+  });
+
+  it("gives no tags for a directory the scout never saw, rather than inventing one", () => {
+    expect(
+      resolveForSpecPath(conventions, "cypress/e2e/brandNewTeam/x.cy.ts").suiteTags
+    ).toEqual([]);
+  });
+
+  it("gives no tags to a spec that sits directly under the spec root", () => {
+    // The scout keys directories by the first path segment, which for a root-level spec is the
+    // file name - so without this a spec inherits a "directory" tag mined from one unrelated file.
+    expect(resolveForSpecPath(conventions, "cypress/e2e/loose.cy.ts").suiteTags).toEqual([]);
+  });
+
+  it("survives a trailing slash on specRoot rather than silently dropping every tag", () => {
+    const withSlash = parseConventions(
+      MINIMAL.replace("specRoot: cypress/e2e", "specRoot: cypress/e2e/"),
+      "demo.yaml"
+    );
+
+    expect(
+      resolveForSpecPath(withSlash, "cypress/e2e/platformTeam/x.cy.ts").suiteTags
+    ).toEqual(["@platformTeam"]);
   });
 
   it("removes a builder a directory denies", () => {

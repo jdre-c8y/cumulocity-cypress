@@ -36,6 +36,22 @@ a bound name is written `${deviceId}`. Writing `{deviceId}` emits a literal brac
 navigates to a URL that does not exist. This is checked, and it is the single most common way
 this IR goes wrong.
 
+**`meta.suite` is what a person reading the CI output sees.** Write what the spec covers -
+"Tests for device events" - not the directory it sits in. The directory is already in the path
+and already in the tags; repeating it names nothing.
+
+**You do not write tags, timeouts, or a suite name's grep tags.** The describe tags come from
+the scout's mined placement table - choosing the directory chose them - and the `it` tags come
+from the contract's author. There is no field for either in the IR, and no field for a timeout:
+the repo's own `defaultCommandTimeout` applies, and an explicit one appears on 2% of this repo's
+`cy.get` calls. A timeout on every step is not caution, it is noise.
+
+**Do not settle what the next step already waits for.** A `settle` emits
+`cy.get(X).should('be.visible')`. If the step right after it targets the same `X`, that step
+waits by itself - `.click()` retries on actionability, an assertion retries until it holds - so
+the settle is two lines that buy nothing. A settle that satisfies an Expected Outcome is a
+different thing: that one *is* the assertion, and it stays.
+
 **Blessed moves carry their real signature.** Read it before you pass arguments: `createDevice`
 takes an object (`{ name: ... }`), not a bare name. The signature is the registration site's own
 parameter list, so it is what the command actually accepts.
@@ -54,21 +70,27 @@ parameter list, so it is what the command actually accepts.
 3. **Setup is enumerated, not inferred.** A step is setup only if it uses a move in the repo's
    blessed list. There is no third option beyond "use a blessed move" and "go through the UI".
 
-4. **A fabricated body must be anchored.** Every literal in a `request` body must appear in the
+4. **Reset what you created, and say so with one field.** A step that calls a blessed move the
+   repo knows how to remove carries `"undo": { "idFrom": "<capture>" }`, naming the capture that
+   holds the new thing's id. That is the whole of your part: the removal itself comes from the
+   conventions file, the compiler places the `afterEach`, and the linter tells you when a move
+   needs one. You never write a delete call, and the spec never removes anything it did not make.
+
+5. **A fabricated body must be anchored.** Every literal in a `request` body must appear in the
    scenario contract; everything else must be a capture or a builder. A real POST creates real
    state, and asserting on it is honest - the anchoring is what keeps it honest.
 
-5. **Every Expected Outcome needs an assertion, and it must read the page.** An outcome
+6. **Every Expected Outcome needs an assertion, and it must read the page.** An outcome
    satisfied by a value something fabricated in the same test is refused. The cheapest route to
    green is to fake the value you are about to assert, and it yields a *passing* spec, so
    nothing else in the system would catch it.
 
-6. **Declare how many elements a step expects.** `cardinality` is `{ "exactly": n }` or
+7. **Declare how many elements a step expects.** `cardinality` is `{ "exactly": n }` or
    `{ "atLeast": n }`, and it is emitted as a real length assertion. This is what turns a
    render-branch change into "expected 3, found 1" instead of a message pointing nowhere near
    its cause.
 
-7. **The step list is flat.** A `captures` binds a name for the rest of the flow and the
+8. **The step list is flat.** A `captures` binds a name for the rest of the flow and the
    compiler places the `.then()` blocks. You describe the test; you do not reason about
    JavaScript's async scope.
 

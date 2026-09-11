@@ -1,14 +1,18 @@
 import ts from "typescript";
-import { compile } from "./compile.js";
+import { compile, type CompileInput } from "./compile.js";
 import { CompileError } from "./emit.js";
 import { buildSourceMap, stepAtLine, isStale } from "./sourceMap.js";
 import { b0Conventions, b0Ir, b0ProbeIr } from "../testing/b0.js";
 import type { IrDocument, IrStep } from "../ir/types.js";
 
-function specOf(mutate: (ir: IrDocument) => void = () => {}): string {
+function specInput(mutate: (ir: IrDocument) => void = () => {}): CompileInput {
   const ir = b0Ir();
   mutate(ir);
-  return compile({ ir, mode: "spec", conventions: b0Conventions() }).text;
+  return { ir, mode: "spec", conventions: b0Conventions() };
+}
+
+function specOf(mutate: (ir: IrDocument) => void = () => {}): string {
+  return compile(specInput(mutate)).text;
 }
 
 describe("the spec back-end", () => {
@@ -40,7 +44,10 @@ describe("the spec back-end", () => {
 
     expect(text).toContain("cy.getDeviceIdByName(deviceName).then((deviceId: any) => {");
     // Everything after the capture is nested inside it, and the block is closed.
-    expect(text.indexOf("cy.request(")).toBeGreaterThan(text.indexOf(".then((deviceId"));
+    // Named precisely: the teardown's own cy.request sits in the afterEach, above the it().
+    expect(text.indexOf("cy.request('/event/events'")).toBeGreaterThan(
+      text.indexOf(".then((deviceId")
+    );
     expect(text).toContain("});");
   });
 
@@ -110,13 +117,84 @@ describe("the spec back-end", () => {
     expect(text.split("cy.login(Cypress.env('username')").length - 1).toBe(1);
   });
 
-  it("carries the repo's tags and its beforeEach idiom", () => {
-    const text = specOf();
+  it("takes the describe tags from the directory, not from the model", () => {
+    // The scout mined dataAndControlTeam's tags off 42 spec files. Nothing derives them from a
+    // scenario about events, and nothing should: the author chose the directory, and that chose
+    // these. The IR has no field for them any more.
+    expect(compile(specInput()).text).toContain(
+      "describe('Tests for device events', { tags: ['@deviceManagementTeam', '@dataAndControlTeam'] }, () => {"
+    );
+  });
+
+  it("writes a single tag as a bare string, which is how this repo writes 229 of 233", () => {
+    // The oracle itself writes { tags: '@requiresBackend' }. Emitting the one-element array
+    // form is the 4-in-233 shape - the same class of house-style defect this change set exists
+    // to remove.
+    const text = compile({ ...specInput(), itTags: ["@requiresBackend"] }).text;
 
     expect(text).toContain(
-      "describe('Tests for device events', { tags: ['@deviceManagementTeam', '@dataAndControlTeam', '@requiresBackend'] }, () => {"
+      "it('Verify the event for a device shows respective event details', { tags: '@requiresBackend' }, () => {"
     );
-    expect(text).toContain("cy.login(Cypress.env('username'), Cypress.env('password'));");
+  });
+
+  it("writes several tags as a list", () => {
+    const text = compile({ ...specInput(), itTags: ["@requiresBackend", "@slow"] }).text;
+
+    expect(text).toContain("{ tags: ['@requiresBackend', '@slow'] }");
+  });
+
+  it("writes a bare it when the contract declared no tags, rather than guessing one", () => {
+    expect(compile(specInput()).text).toContain(
+      "it('Verify the event for a device shows respective event details', () => {"
+    );
+  });
+
+  it("emits the repo's beforeEach idiom", () => {
+    expect(compile(specInput()).text).toContain(
+      "cy.login(Cypress.env('username'), Cypress.env('password'));"
+    );
+  });
+
+  it("resets the state the spec created, per it(), and nothing else", () => {
+    // Ticket 02 Q7(c). cumulocity-ui has no cy.deleteDevice, so the conventions file names the
+    // house snippet - a cascade delete of the managed object - on the blessed move itself.
+    const text = specOf();
+
+    expect(text).toContain("let createdDeviceId: string | undefined;");
+    expect(text).toContain("afterEach(() => {");
+    expect(text).toContain("if (createdDeviceId) {");
+    expect(text).toContain("managedObjects/${createdDeviceId}?cascade=true");
+    expect(text).toContain("method: 'DELETE'");
+  });
+
+  it("binds the id for teardown where the capture binds, not before it exists", () => {
+    const text = specOf();
+    const then = text.indexOf("cy.getDeviceIdByName(deviceName).then((deviceId: any) => {");
+    const assign = text.indexOf("createdDeviceId = deviceId;");
+
+    expect(then).toBeGreaterThan(-1);
+    expect(assign).toBeGreaterThan(then);
+  });
+
+  it("clears the id after deleting, so a second it() cannot delete the first one's device", () => {
+    expect(specOf()).toContain("createdDeviceId = undefined;");
+  });
+
+  it("emits no teardown when nothing in the flow created real state", () => {
+    const text = compile({
+      ...specInput((ir) => {
+        ir.steps = ir.steps.filter((s) => s.callRepoHelper?.name !== "createDevice");
+        delete ir.steps[0]?.undo;
+      }),
+    }).text;
+
+    expect(text).not.toContain("afterEach(");
+  });
+
+  it("emits no teardown in probe mode, whose spec is thrown away with the run", () => {
+    const text = compile({ ir: b0ProbeIr(), mode: "probe", conventions: b0Conventions() }).text;
+
+    expect(text).not.toContain("afterEach(");
   });
 
   it("refuses a provisional selector rather than emitting null.click()", () => {

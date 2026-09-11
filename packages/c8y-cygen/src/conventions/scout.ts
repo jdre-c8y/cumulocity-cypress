@@ -84,7 +84,16 @@ function count(text: string, needle: string): number {
 const NAVIGATE = /cy\.(visitAndWaitUntilPageLoad|visitAndWaitForSelector|visit)\(\s*(['"`])([^'"`]*)\2/g;
 const NAVIGATE_BOUND = /cy\.(visitAndWaitUntilPageLoad|visitAndWaitForSelector|visit)\(\s*[A-Za-z_$]/g;
 const CY_CALL = /cy\.([A-Za-z_$][\w$]*)\s*\(/g;
-const DESCRIBE_TAGS = /tags:\s*(\[[^\]]*\]|'[^']*'|"[^"]*")/;
+/**
+ * Anchored on `describe(` and its title, so an `it`-level tag or a `tags:` key inside a fixture
+ * literal is not read as the directory's own. Both happened against the host repo:
+ * `authentication/` was mined as '@requiresBackend' (an it tag) where every describe says
+ * '@authentication', and `documentation-screenshots/` as ['default','latest'] - a field of an
+ * IApplicationVersion object. Those values went into a reviewed file and from there would have
+ * gone into every spec the directory generated.
+ */
+const DESCRIBE_TAGS =
+  /\bdescribe(?:\.only|\.skip)?\s*\(\s*(['"`])(?:[^'"`\\]|\\.)*?\1\s*,\s*\{[^{}]*?tags:\s*(\[[^\]]*\]|'[^']*'|"[^"]*")/g;
 
 /**
  * Route normalisation. A leading-slash inconsistency alone merged the host repo's top route
@@ -101,6 +110,7 @@ export function mineConventions(repo: string, specRoot = "cypress/e2e"): MinedCo
   const files = walkSpecs(root);
 
   const directories: Record<string, MinedDirectory> = {};
+  const tagVotes: Record<string, Record<string, number>> = {};
   const commandCalls: MinedCounts = {};
   const called = new Set<string>();
   const builders: MinedCounts = {};
@@ -113,9 +123,12 @@ export function mineConventions(repo: string, specRoot = "cypress/e2e"): MinedCo
 
     const entry = directories[directory] ?? { specs: 0, tag: null };
     entry.specs += 1;
-    if (entry.tag === null) {
-      const tags = DESCRIBE_TAGS.exec(text)?.[1];
-      if (tags) entry.tag = tags;
+    // Tallied, not first-file-wins. dataAndControlTeam has 24 describes agreeing and one that
+    // does not; whichever the walk reached first used to decide the whole directory.
+    const seen = tagVotes[directory] ?? (tagVotes[directory] = {});
+    for (const match of text.matchAll(DESCRIBE_TAGS)) {
+      const tags = match[2] as string;
+      seen[tags] = (seen[tags] ?? 0) + 1;
     }
     directories[directory] = entry;
 
@@ -141,6 +154,17 @@ export function mineConventions(repo: string, specRoot = "cypress/e2e"): MinedCo
       const n = count(text, pattern);
       if (n > 0) builders[pattern] = (builders[pattern] ?? 0) + n;
     }
+  }
+
+  // The directory's tag is the one most of its describes carry. A tie is broken by the tagging
+  // that reads first, so the result does not depend on directory-walk order.
+  for (const [directory, votes] of Object.entries(tagVotes)) {
+    const entry = directories[directory];
+    if (!entry) continue;
+    const ranked = Object.entries(votes).sort(
+      ([a, na], [b, nb]) => nb - na || a.localeCompare(b)
+    );
+    entry.tag = ranked[0]?.[0] ?? null;
   }
 
   const prettierrc = [".prettierrc.yaml", ".prettierrc.json", ".prettierrc", ".prettierrc.js"]

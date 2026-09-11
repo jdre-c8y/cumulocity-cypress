@@ -146,6 +146,28 @@ function matches(o: ConventionsOverride, specPath: string): boolean {
  * polish: a repo whose contracts directory needs byte-stable names gets a spec that passes
  * its first run and fails every one after if `uniqueName` survives there.
  */
+/**
+ * The directory immediately under the spec root is the team, and the scout mined what that team
+ * tags its specs with. A directory the scout never saw yields nothing rather than a guess: an
+ * invented grep tag puts the spec in a CI lane nobody watches.
+ */
+function suiteTagsFor(conventions: Conventions, specPath: string): string[] {
+  // A trailing slash on specRoot is a plausible hand-edit of a reviewed file, and without this
+  // it would silently drop the tags from every generated spec.
+  const root = normalise(conventions.placement?.specRoot ?? "").replace(/\/+$/, "");
+  if (!root || !specPath.startsWith(`${root}/`)) return [];
+  const rest = specPath.slice(root.length + 1).split("/");
+  // A spec sitting directly under the spec root is in no team directory. The scout keys
+  // directories by the first path segment, which for such a file is its own name, so without
+  // this the spec would inherit a tag mined from one unrelated file.
+  if (rest.length < 2) return [];
+  const directory = rest[0];
+  if (!directory) return [];
+  const tag = conventions.placement?.directories?.[directory]?.tag;
+  if (tag === null || tag === undefined) return [];
+  return Array.isArray(tag) ? tag : [tag];
+}
+
 export function resolveForSpecPath(
   conventions: Conventions,
   specPath: string
@@ -170,6 +192,7 @@ export function resolveForSpecPath(
   return {
     ...conventions,
     generate,
+    suiteTags: suiteTagsFor(conventions, target),
     effectiveIdioms: idioms,
     effectiveValueBuilders: builders,
     deniedValueBuilders: [...denied],

@@ -180,6 +180,12 @@ export interface Conventions {
 export interface EffectiveConventions extends Conventions {
   /** false when this directory is out of scope for generation. */
   generate: boolean;
+  /**
+   * The describe-level grep tags for this spec's directory, read off the scout's mined
+   * placement table. Choosing the directory chooses the tag, so this is a repo fact rather
+   * than a judgement - and an empty list means the corpus tags that directory with nothing.
+   */
+  suiteTags: string[];
   effectiveIdioms: Idioms;
   effectiveValueBuilders: ValueBuilder[];
   deniedValueBuilders: string[];

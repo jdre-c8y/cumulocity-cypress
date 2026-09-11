@@ -11,17 +11,23 @@ function patched(mutate: (ir: IrDocument) => void): IrDocument {
 describe("the frozen/free split", () => {
   it("computes the changed field paths from the diff rather than taking them on trust", () => {
     const after = patched((ir) => {
-      (ir.steps[4] as IrStep).settle!.timeoutMs = 20_000;
+      (ir.steps[4] as IrStep).settle!.target = {
+        resolved: "cy.get('c8y-device-events').find('c8y-tabs-outlet')",
+        fromRow: "events-page#1",
+      };
     });
 
     expect(diffIr(b0Ir(), after).map((c) => c.path)).toEqual([
-      "steps.tabs-visible.settle.timeoutMs",
+      "steps.tabs-visible.settle.target.resolved",
     ]);
   });
 
-  it("accepts a timeout, a scope or a re-pointed row - the mechanics zone", () => {
+  it("accepts a re-pointed row or a narrowed scope - the mechanics zone", () => {
     const after = patched((ir) => {
-      (ir.steps[4] as IrStep).settle!.timeoutMs = 20_000;
+      (ir.steps[4] as IrStep).settle!.target = {
+        resolved: "cy.get('c8y-device-events').find('c8y-tabs-outlet')",
+        fromRow: "events-page#1",
+      };
       (ir.steps[6] as IrStep).assert!.target = {
         resolved: "cy.get('c8y-event-details').find('[data-cy=\"x\"]')",
         fromRow: "event-detail#1",
@@ -118,14 +124,21 @@ describe("the frozen/free split", () => {
     // Without the attempt log, fresh sessions oscillate - flip a selector, fail, flip it back,
     // fail - and the budget burns on a two-state loop no single session can see.
     const after = patched((ir) => {
-      (ir.steps[4] as IrStep).settle!.timeoutMs = 20_000;
+      (ir.steps[4] as IrStep).settle!.target = {
+        resolved: "cy.get('c8y-device-events').find('c8y-tabs-outlet')",
+        fromRow: "events-page#1",
+      };
     });
 
     const verdict = checkPatch(b0Ir(), after, [
       {
         passed: false,
         changed: [
-          { path: "steps.tabs-visible.settle.timeoutMs", before: undefined, after: 20_000 },
+          {
+            path: "steps.tabs-visible.settle.target.resolved",
+            before: "cy.get('c8y-tabs-outlet')",
+            after: "cy.get('c8y-device-events').find('c8y-tabs-outlet')",
+          },
         ],
       },
     ]);

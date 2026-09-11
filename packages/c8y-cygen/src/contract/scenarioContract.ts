@@ -30,6 +30,16 @@ export interface ScenarioContract {
   outcomes: ExpectedOutcome[];
   /** null when the author did not write a Style section. */
   style: ContractStyle | null;
+  /**
+   * Grep tags for the emitted `it`, as the author declared them. Empty when they declared none.
+   *
+   * Not derived, and not the model's to guess. Measured across the host repo's 203 spec files,
+   * `@requiresBackend` correlates with neither real-state calls in the test body nor with
+   * integration style - the latter at 44%, worse than a coin. It is a judgement about the
+   * scenario that only its author holds, and getting it wrong runs the spec in the wrong CI
+   * lane, which is a failure no assertion in the spec can catch.
+   */
+  tags: string[];
   passthrough: PassthroughSection[];
   /** The contract exactly as written. The anchoring check reads literals out of this. */
   raw: string;
@@ -49,6 +59,7 @@ const KNOWN_SECTIONS = [
   "steps",
   "expected outcomes",
   "style",
+  "tags",
 ] as const;
 
 const STYLES: readonly string[] = ["integration", "mocked"];
@@ -123,6 +134,46 @@ function parseOutcomes(body: string): ExpectedOutcome[] {
   return outcomes;
 }
 
+/**
+ * Tolerates the two shapes an author writes by hand - a markdown list, or one comma-separated
+ * line - and backticks around each tag either way. A token with no leading `@` is refused
+ * rather than repaired: `requiresBackend` is a plausible typo for a real tag, and silently
+ * emitting it would put the spec in a lane nobody greps.
+ */
+function parseTags(body: string | undefined, contractPath: string): string[] {
+  if (body === undefined) return [];
+  // Comments go first. This is the one section parser that refuses what it does not recognise,
+  // and the module promises comments pass through - so a contract saying "no tag, and here is
+  // why" has to parse.
+  const lines = body.replace(/<!--[\s\S]*?-->/g, "").split("\n");
+  const items = lines.filter((l) => /^\s*[-*]\s+/.test(l));
+  // List items win when there are any, so an author may explain the section above them without
+  // every sentence being read as a tag. But a stray line that carries a tag is refused rather
+  // than skipped: dropping one silently is the wrong-CI-lane failure this section exists to
+  // prevent, and it would look exactly like success.
+  if (items.length > 0) {
+    const stray = lines.find((l) => !/^\s*[-*]\s+/.test(l) && l.includes("@"));
+    if (stray !== undefined) {
+      throw new ContractParseError(
+        `${contractPath}: '${stray.trim()}' in '## Tags' carries a tag but is not a list item. Every tag must be its own '- ' item, or the section must be one comma-separated line.`
+      );
+    }
+  }
+  const source = items.length > 0 ? items : lines;
+  const tokens = source
+    .flatMap((line) => line.split(","))
+    .map((token) => token.replace(/^\s*[-*]\s*/, "").replace(/`/g, "").trim())
+    .filter((t) => t.length > 0);
+  for (const token of tokens) {
+    if (!/^@[\w-]+$/.test(token)) {
+      throw new ContractParseError(
+        `${contractPath}: '${token}' in '## Tags' is not a grep tag. Write it as it appears in the spec, leading @ and all.`
+      );
+    }
+  }
+  return tokens;
+}
+
 function parseStyle(body: string): ContractStyle {
   const token = /`([^`]+)`/.exec(body)?.[1] ?? body.trim().split(/\s+/)[0] ?? "";
   const value = token.trim().toLowerCase();
@@ -180,6 +231,7 @@ export function parseScenarioContract(
     steps: known.get("steps") ?? "",
     outcomes,
     style: styleBody === undefined ? null : parseStyle(styleBody),
+    tags: parseTags(known.get("tags"), contractPath),
     passthrough,
     raw: source,
   };
