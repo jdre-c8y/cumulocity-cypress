@@ -90,7 +90,8 @@
               "role": { "enum": ["auth", "navigate", "setup", "teardown"] },
               "returns": { "type": "string" },
               "fabricates": { "type": "array", "items": { "type": "string" } },
-              "callShape": { "type": "string" }
+              "callShape": { "type": "string" },
+              "signature": { "type": "string" }
             },
             "allOf": [
               {

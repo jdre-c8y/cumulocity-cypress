@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  classifyRegistry,
   draftConventionsYaml,
   mineConventions,
   mineReachIndex,
@@ -130,16 +131,57 @@ describe("the reachability index", () => {
 });
 
 describe("the registry probe", () => {
-  it("reads the registry rather than the source, and writes it out", () => {
+  it("reads what is callable on cy, not a registry internal", () => {
+    // Cypress 15 removed both Cypress.Commands._commands and Cypress.Commands.getAll(), and a
+    // probe built on either returned zero commands while reporting success.
     const spec = registryProbeSpec("/tmp/commands.json");
 
-    expect(spec).toContain("Cypress.Commands._commands");
+    expect(spec).toContain("Object.keys(cy)");
+    expect(spec).toContain("typeof cy[key] === 'function'");
+    expect(spec).not.toContain("_commands");
     expect(spec).toContain('cy.writeFile("/tmp/commands.json"');
-    expect(spec).toContain("overwritten");
   });
 
   it("asserts nothing, because its only product is the command list", () => {
     expect(registryProbeSpec("/tmp/x.json")).not.toContain(".should(");
+  });
+});
+
+describe("classifyRegistry", () => {
+  const withSupport = {
+    cypressVersion: "15.8.1",
+    supportFileLoaded: true,
+    count: 4,
+    names: ["get", "click", "createDevice", "verifyDownload"],
+  };
+  const stock = {
+    cypressVersion: "15.8.1",
+    supportFileLoaded: false,
+    count: 2,
+    names: ["get", "click"],
+  };
+
+  it("keeps everything callable, because that is what the linter checks a helper against", () => {
+    expect(classifyRegistry(withSupport, stock).commands.map((c) => c.name)).toEqual([
+      "get",
+      "click",
+      "createDevice",
+      "verifyDownload",
+    ]);
+  });
+
+  it("separates what this repo registers, by diffing against a stock cy", () => {
+    // The difference between the two runs is exactly the repo surface - including a command
+    // registered by a third party side effect, which no grep can place.
+    expect(classifyRegistry(withSupport, stock).registered).toEqual([
+      "createDevice",
+      "verifyDownload",
+    ]);
+  });
+
+  it("claims nothing about provenance without the stock baseline", () => {
+    expect(classifyRegistry(withSupport).registered).toEqual([]);
+    expect(classifyRegistry(withSupport).commands).toHaveLength(4);
   });
 });
 

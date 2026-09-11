@@ -19,6 +19,27 @@ An early iteration is a probe not because it is a different program but because 
 finished. "Am I done gathering?" is not a judgement you have to make: the linter answers it.
 A spec IR that references a selector no probe observed cannot lint, so it cannot run.
 
+## Where a step goes, and how a value gets into a string
+
+**`steps` is where your flow lives. `setup` is almost always empty.**
+
+`setup` compiles into `beforeEach`, which runs before the test body declares anything - so a
+setup step has **no names in scope at all**. Anything that uses a var, binds a capture, or reads
+one belongs in `steps`. Creating the device, reading its id and posting the event are all
+`steps`, in the order the contract gives them.
+
+You also do not author authentication. The repo's `beforeEach` idiom already emits it on every
+test; a `login` step in your IR just emits the same call twice.
+
+**Interpolation is `${name}`, with the dollar.** In any string - a `visit` path, a `request` url -
+a bound name is written `${deviceId}`. Writing `{deviceId}` emits a literal brace and the spec
+navigates to a URL that does not exist. This is checked, and it is the single most common way
+this IR goes wrong.
+
+**Blessed moves carry their real signature.** Read it before you pass arguments: `createDevice`
+takes an object (`{ name: ... }`), not a bare name. The signature is the registration site's own
+parameter list, so it is what the command actually accepts.
+
 ## Rules you cannot get around, and should not try to
 
 1. **You never write a selector.** A `target` is either `{ "provisional": {...} }` - a
@@ -58,10 +79,22 @@ identifies it, and whether a person can act on it. To target a row, put its id i
 leave `resolved` to be filled by the ladder - if you do not know the emitted selector, write your
 best reading of it and the linter will tell you what the ladder actually derives.
 
+A provisional guess is structural: `within` and `tag` are CSS selectors, `text` is a substring of
+visible text, `matches` is a **regular expression over visible text** for a label that changes
+with state, and `nth` picks one of several. A CSS selector in `matches` is a valid selector and
+an invalid regex, and it costs a whole probe run to discover that.
+
 When no probe has run, write the flow with `collect` steps at the points you need to see, and a
 `provisional` guess wherever you must reach something you cannot yet name. One probe run walks
 the whole flow: a second is needed only when knowing a selector changes which *path* is taken,
 not merely which string is written.
+
+**Collect before you guess.** A probe that dies partway keeps everything it already collected,
+which is what makes a wrong provisional guess cost progress rather than the whole run - but only
+if a collect came first. Put a `collect` immediately after the navigation that reaches a new
+page, before any `provisional` step on that page. Then a guess that misses still leaves you the
+rows you need to fix it, and the next iteration resolves the selector instead of re-running a
+probe that learned nothing.
 
 Read the attempt log before changing anything. It records what earlier iterations of this run
 tried and what happened. Repeating a change that already failed is the failure mode it exists to

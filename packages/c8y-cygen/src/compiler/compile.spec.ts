@@ -102,6 +102,14 @@ describe("the spec back-end", () => {
     expect(specOf()).not.toContain("import { createDevice }");
   });
 
+  it("does not emit the repo's auth idiom twice when the IR authors it too", () => {
+    const text = specOf((ir) => {
+      ir.setup = [{ id: "login", callRepoHelper: { name: "login" } }];
+    });
+
+    expect(text.split("cy.login(Cypress.env('username')").length - 1).toBe(1);
+  });
+
   it("carries the repo's tags and its beforeEach idiom", () => {
     const text = specOf();
 
@@ -174,6 +182,15 @@ describe("the probe back-end", () => {
       expect(specText).toContain(line);
       expect(probeText).toContain(line);
     }
+  });
+
+  it("brings in what a value builder needs, because a probe that crashes collects nothing", () => {
+    // Measured the hard way: the probe emitted dayjs().format(...) from the isoTime builder with
+    // no import, died on the setup request, and returned zero rows for a whole spent run.
+    const text = probe().text;
+
+    expect(text).toContain("dayjs().format('YYYY-MM-DDTHH:mm:ssZ')");
+    expect(text).toContain("import * as dayjs from 'dayjs';");
   });
 
   it("routes a provisional selector through the command that records what it matched", () => {

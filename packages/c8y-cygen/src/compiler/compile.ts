@@ -240,6 +240,16 @@ export function compile(input: CompileInput): CompileResult {
   for (const line of conventions.effectiveIdioms.beforeEach ?? []) {
     setup.push(indentBlock(`${line};`, 2));
   }
+  // The repo's beforeEach idiom and an IR setup step can emit the same call. A duplicated
+  // cy.login is harmless but visibly foreign, and it is the kind of thing a reviewer notices
+  // before anything else in the file.
+  const seenSetupLines = new Set<string>();
+  const dedupedSetup = setup.filter((line) => {
+    const key = line.trim();
+    if (seenSetupLines.has(key)) return false;
+    seenSetupLines.add(key);
+    return true;
+  });
 
   const declarations = Object.entries(ir.vars ?? {}).map(
     ([name, value]) => `const ${name} = ${emitValue(value, ctx)};`
@@ -281,11 +291,13 @@ export function compile(input: CompileInput): CompileResult {
     .map((s) => (s.callRepoHelper as { name: string }).name);
   const preamble = collectPreamble(helperNames, ctx);
 
-  const emittedCode = [...setup, ...declarations, ...body].join("\n");
-  const timePreamble =
-    mode === "spec" && needsTimePreamble(emittedCode)
-      ? (conventions.effectiveIdioms.timePreamble ?? [])
-      : [];
+  const emittedCode = [...dedupedSetup, ...declarations, ...body].join("\n");
+  // Both back-ends, not just spec mode. The probe emits the same blessed setup moves and the
+  // same value builders, so it needs the same things in scope - and a probe that crashes on a
+  // missing import collects nothing, which costs a whole run for no facts.
+  const timePreamble = needsTimePreamble(emittedCode)
+    ? (conventions.effectiveIdioms.timePreamble ?? [])
+    : [];
 
   const suite = mode === "probe" ? `${ir.meta.suite} [probe]` : ir.meta.suite;
   const title = mode === "probe" ? `probe: ${ir.meta.title}` : ir.meta.title;
@@ -311,8 +323,8 @@ export function compile(input: CompileInput): CompileResult {
   const text = [
     ...head,
     `describe(${emitString(suite)}${describeOptions}, () => {`,
-    ...(setup.length > 0
-      ? [`${INDENT}beforeEach(() => {`, ...setup, `${INDENT}});`, ""]
+    ...(dedupedSetup.length > 0
+      ? [`${INDENT}beforeEach(() => {`, ...dedupedSetup, `${INDENT}});`, ""]
       : []),
     `${INDENT}it(${emitString(title)}, () => {`,
     ...declarations.map((d) => indentBlock(d, 2)),

@@ -29,6 +29,11 @@ minedFrom:
   corpus:
     specFiles: 200
     directories: 10
+  registryProbe:
+    cypressVersion: 15.8.1
+    callableWithSupportFile: 236
+    callableOnStockCypress: 181
+    registeredByThisRepo: 55
 
 # ---------------------------------------------------------------------------
 # placement - the spec lands beside its scenario contract, so this records the tree
@@ -74,66 +79,74 @@ commands:
   available:
     source: probe
     generated: true
+    # MEASURED, not transcribed: two probe runs against the tenant, one with the support file
+    # and one with supportFile:false, and the difference between what is callable on `cy` in
+    # each. 236 callable with the support file, 181 on a stock cy, so 55 are this repo's.
+    #
+    # A grep cannot produce this. cy.verifyDownload arrives through
+    #   require('cy-verify-downloads').addCustomCommand()      - support/e2e.ts:25
+    # with no Cypress.Commands.add anywhere in the repo, and six more come from loop-registered
+    # third-party packages the same way.
     names:
-      # repo-local, cypress/support/commands.ts
       - acceptCookieBanner
-      - createDevice
-      - createMockedDevice
-      - createTenant
-      - displayCookieBanner
-      - documentationScreenshotViewport
-      - getDeviceIdByName
-      - getTenantId
-      - hidePopover
-      - login
-      - mockMOsPerCurrentPage
-      - openRegistrationForm
-      - request
-      - visitAndVerifyContentByText
-      - visitAndWaitUntilPageLoad
-      - visitInfoPageAndWaitForWidgetsToLoad
-      # cumulocity-cypress@1.1.5, via the lib/commands barrel
       - assignUserRoles
+      - attachFile
       - bootstrapDeviceCredentials
       - c8yclient
       - c8yclientf
       - c8ymatch
+      - checkA11y
       - clearHighlights
+      - clearLocalStorageSnapshot
       - clearUserRoles
       - compareDates
+      - compareSnapshot
+      - configureAxe
+      - createDevice
       - createGlobalRole
+      - createMockedDevice
+      - createTenant
       - createUser
       - dateFormat
       - deleteGlobalRoles
       - deleteUser
       - disableCookieBanner
       - disableGainsight
+      - disableLocalStorage
+      - displayCookieBanner
+      - documentationScreenshotViewport
       - getAuth
       - getCurrentTenant
+      - getDeviceIdByName
+      - getLocalStorage
       - getShellVersion
       - getSystemVersion
+      - getTenantId
       - hideCookieBanner
+      - hidePopover
       - highlight
+      - injectAxe
+      - login
+      - mockMOsPerCurrentPage
+      - openRegistrationForm
+      - removeLocalStorage
+      - restoreLocalStorage
+      - saveLocalStorage
       - setLanguage
+      - setLocalStorage
       - showCookieBanner
       - toDate
       - toISODate
       - useAuth
-      - visitAndWaitForSelector
-      # third-party, registered by side effect - invisible to a source grep
-      - attachFile
-      - checkA11y
-      - clearLocalStorageSnapshot
-      - compareSnapshot
-      - configureAxe
-      - disableLocalStorage
-      - getLocalStorage
-      - injectAxe
-      - removeLocalStorage
-      - restoreLocalStorage
-      - saveLocalStorage
-      - setLocalStorage
       - verifyDownload
+      - visitAndVerifyContentByText
+      - visitAndWaitForSelector
+      - visitAndWaitUntilPageLoad
+      - visitInfoPageAndWaitForWidgetsToLoad
+      # A Cypress built-in this repo OVERWRITES (commands.ts:316) to attach X-XSRF-TOKEN, so it
+      # does not appear in the registered diff but is real and callable. There is a `request`
+      # verb for it; naming it as a repo helper is real-but-unblessed, which is the right answer.
+      - request
 
     # Registered twice. cypress/support/commands.ts loads after the library barrel, so the
     # repo signature wins - and the signatures are NOT compatible, so a scout that merges two
@@ -147,6 +160,8 @@ commands:
         winner: repo
       - name: getTenantId
         winner: repo
+      - name: request
+        winner: repo # over the Cypress built-in, to attach X-XSRF-TOKEN
 
     # Names that look real and are not. Recorded so the two known mistakes cannot repeat.
     knownPhantoms:
@@ -160,17 +175,20 @@ commands:
   blessed:
     - name: login
       binding: global
+      signature: "login(username, password, acceptCookieBanner = true, blockGainsight = true)" # read off the registration site
       kind: real-state
       role: auth
       uses: 232
       callShape: "cy.login(Cypress.env('username'), Cypress.env('password'))"
     - name: visitAndWaitUntilPageLoad
       binding: global
+      signature: "visitAndWaitUntilPageLoad(url, doA11yCheck = true, selector?)" # read off the registration site
       kind: neither
       role: navigate
       uses: 933
     - name: createDevice
       binding: global
+      signature: "createDevice(deviceProperties = { name: 'e2eDevice' })" # read off the registration site
       kind: real-state
       role: setup
       uses: 60
@@ -181,11 +199,13 @@ commands:
       teardown: inventoryCascadeDelete
     - name: getDeviceIdByName
       binding: global
+      signature: "getDeviceIdByName(deviceName, isDeviceSimulator?)" # read off the registration site
       kind: real-state # read-only
       role: setup
       uses: 21
     - name: createMockedDevice
       binding: global
+      signature: "createMockedDevice(moProperties: { id: '' })" # read off the registration site
       kind: fabricating # cy.intercept + req.reply, commands.ts:360
       role: setup
       uses: 49
@@ -196,6 +216,7 @@ commands:
       pairsWith: null
     - name: mockMOsPerCurrentPage
       binding: global
+      signature: "mockMOsPerCurrentPage(managedObjects, pageSize?)" # read off the registration site
       kind: fabricating
       role: setup
       uses: 29

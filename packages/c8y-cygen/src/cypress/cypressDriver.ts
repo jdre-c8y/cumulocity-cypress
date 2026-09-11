@@ -64,6 +64,11 @@ export interface RunRequest {
    * them structurally incapable of being run by the repo's own suite.
    */
   specPattern?: string;
+  /**
+   * `false` loads no support file, which is how the scout gets a stock baseline of `cy` to diff
+   * the repo's registered commands against. Never set by a generation run.
+   */
+  supportFile?: string | false;
   env?: Record<string, string>;
   baseUrl?: string;
 }
@@ -254,6 +259,7 @@ export class ModuleApiCypressRunner implements RunsCypress {
         videosFolder: request.videosFolder,
         downloadsFolder: request.downloadsFolder,
         ...(request.specPattern ? { specPattern: request.specPattern } : {}),
+        ...(request.supportFile !== undefined ? { supportFile: request.supportFile } : {}),
         ...(request.baseUrl ? { baseUrl: request.baseUrl } : {}),
       },
       ...(request.env ? { env: request.env } : {}),

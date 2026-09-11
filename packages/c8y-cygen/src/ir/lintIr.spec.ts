@@ -173,6 +173,76 @@ describe("the broken-file corpus", () => {
     expect(messages(input)).toMatch(/unbound runtime reference '\$\{deviceIdentifier\}'/);
   });
 
+  it("catches a CSS selector put where a text regex belongs", () => {
+    // Measured: the model wrote matches: "[data-cy='x'], c8y-device-details", which is a valid
+    // selector and an invalid character class. The probe run died on it and collected nothing.
+    const input = {
+      ir: b0ProbeIr(),
+      mode: "probe" as const,
+      conventions: b0Conventions(),
+      contract: b0Contract(),
+    };
+    (input.ir.steps[5] as IrStep).click!.target = {
+      provisional: { matches: "[data-cy='device-details--tab-view'], c8y-device-details" },
+    };
+
+    expect(messages(input)).toMatch(/is a CSS selector/);
+  });
+
+  it("catches a matches pattern that is not a valid regular expression", () => {
+    const input = {
+      ir: b0ProbeIr(),
+      mode: "probe" as const,
+      conventions: b0Conventions(),
+      contract: b0Contract(),
+    };
+    (input.ir.steps[5] as IrStep).click!.target = { provisional: { matches: "Save(" } };
+
+    expect(messages(input)).toMatch(/not a valid regular expression/);
+  });
+
+  it("allows the state-dependent label regex the design exists for", () => {
+    const input = {
+      ir: b0ProbeIr(),
+      mode: "probe" as const,
+      conventions: b0Conventions(),
+      contract: b0Contract(),
+    };
+    (input.ir.steps[5] as IrStep).click!.target = {
+      provisional: { tag: "button", matches: "Change provider|Add global provider" },
+    };
+
+    expect(messages(input)).not.toMatch(/matches/);
+  });
+
+  it("catches a brace that lost its dollar", () => {
+    // Measured: the model wrote #/device/{deviceId}/events and the spec navigated to a URL with
+    // a literal brace in it. Nothing downstream can tell that from a route that really contains
+    // one, so it has to be caught while the bound names are still in hand.
+    const input = specInput((ir) => {
+      (ir.steps[3] as IrStep).visit!.path = "/apps/x#/device/{deviceId}/events";
+    });
+
+    expect(messages(input)).toMatch(/missing its dollar/);
+  });
+
+  it("leaves a brace alone when it names nothing bound", () => {
+    const input = specInput((ir) => {
+      (ir.steps[3] as IrStep).visit!.path =
+        "/apps/x#/device/${deviceId}/events?filter={raw}";
+    });
+
+    expect(messages(input)).not.toMatch(/missing its dollar/);
+  });
+
+  it("catches the repo auth idiom authored into the IR, which would emit it twice", () => {
+    const input = specInput((ir) => {
+      ir.setup = [{ id: "login", callRepoHelper: { name: "login" } }];
+    });
+
+    expect(messages(input)).toMatch(/already emits it in beforeEach/);
+  });
+
   it("catches a capture referenced before the step that binds it", () => {
     const input = specInput((ir) => {
       const capture = ir.steps[1] as IrStep;

@@ -135,7 +135,10 @@
                 "within": { "type": "string" },
                 "tag": { "type": "string" },
                 "text": { "type": "string" },
-                "matches": { "type": "string" },
+                "matches": {
+                  "type": "string",
+                  "description": "A regular expression over VISIBLE TEXT, for a state-dependent label such as Change provider|Add global provider. Not a CSS selector - a selector belongs in tag or within."
+                },
                 "nth": { "type": "integer", "minimum": 0 }
               }
             }

@@ -121,9 +121,26 @@ function stepValues(step: IrStep): IrValue[] {
 }
 
 const REF_PATTERN = /\$\{(\w+)\}/g;
+/** A brace without its dollar. Caught because the result is a URL with a literal brace in it. */
+const MISSING_DOLLAR = /(^|[^$])\{(\w+)\}/g;
 
 function refsInString(s: string): string[] {
   return [...s.matchAll(REF_PATTERN)].map((m) => m[1] as string);
+}
+
+/**
+ * `{deviceId}` where `${deviceId}` was meant.
+ *
+ * This is the v1 defect that motivated the whole value-builder vocabulary, inverted: there the
+ * compiler emitted a template literal's text inside single quotes, so the spec navigated to a
+ * URL containing a literal dollar-brace. Here the model drops the dollar and the same thing
+ * happens - and nothing downstream can tell the difference between that and a route that really
+ * does contain a brace, so it has to be caught by name while the names are still in hand.
+ */
+function missingDollarRefs(s: string, inScope: ReadonlySet<string>): string[] {
+  return [...s.matchAll(MISSING_DOLLAR)]
+    .map((m) => m[2] as string)
+    .filter((name) => inScope.has(name));
 }
 
 /**
@@ -184,6 +201,12 @@ export function lintIr(input: LintInput): LintResult {
           if (!inScope.has(ref)) {
             add(where, `unbound runtime reference '\${${ref}}'`);
           }
+        }
+        for (const name of missingDollarRefs(v, inScope)) {
+          add(
+            where,
+            `'{${name}}' is missing its dollar: ${name} is a bound name here, so this was meant to be '\${${name}}'. As written it emits a literal brace.`
+          );
         }
         return;
       }
@@ -258,6 +281,14 @@ export function lintIr(input: LintInput): LintResult {
     if (step.callRepoHelper) {
       const name = step.callRepoHelper.name;
       const move = blessed.get(name);
+      // Auth is a repo fact, not a scenario fact: the conventions file's beforeEach idiom
+      // already emits it on every test. An IR that authors it too gets it twice.
+      if (move?.role === "auth" && (conventions.effectiveIdioms.beforeEach ?? []).length > 0) {
+        add(
+          where,
+          `'${name}' is this repo's auth idiom and the compiler already emits it in beforeEach. Authoring it again duplicates the call.`
+        );
+      }
       if (!move) {
         const real = available.has(name);
         add(
@@ -288,6 +319,24 @@ export function lintIr(input: LintInput): LintResult {
     if (!target) continue;
 
     if (isProvisional(target)) {
+      // `matches` is a regular expression over visible text - it exists for a state-dependent
+      // label like /Change provider|Add global provider/. A CSS selector put there is a valid
+      // selector and an invalid character class, and it costs a whole probe run to find out.
+      const pattern = target.provisional.matches;
+      if (pattern !== undefined) {
+        if (/\[|^[.#]/.test(pattern)) {
+          add(
+            where,
+            `provisional 'matches' is a regular expression over visible text, and ${JSON.stringify(pattern)} is a CSS selector. A selector belongs in 'tag' or 'within'.`
+          );
+        } else {
+          try {
+            new RegExp(pattern);
+          } catch (e) {
+            add(where, `provisional 'matches' is not a valid regular expression: ${(e as Error).message}`);
+          }
+        }
+      }
       if (mode === "spec") {
         add(
           where,

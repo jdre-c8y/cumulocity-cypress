@@ -100,6 +100,7 @@ export function conventionsForModel(conventions: EffectiveConventions): string {
     testDataPrefix: conventions.testDataPrefix,
     blessedMoves: conventions.commands.blessed.map((m) => ({
       name: m.name,
+      signature: m.signature,
       kind: m.kind,
       role: m.role,
       pairsWith: m.pairsWith,

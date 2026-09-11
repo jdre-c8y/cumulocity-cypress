@@ -40,6 +40,12 @@ export interface BlessedMove {
   fabricates?: string[];
   /** The emitted call shape, `{0}`..`{n}` positional. Defaults to `cy.<name>(...args)`. */
   callShape?: string;
+  /**
+   * The real parameter list, read off the registration site. Shown to the model, because
+   * nothing else tells it that createDevice takes an object and not a bare name - and a wrong
+   * shape is a whole wasted run that the linter cannot catch.
+   */
+  signature?: string;
 }
 
 export interface CommandCollision {
