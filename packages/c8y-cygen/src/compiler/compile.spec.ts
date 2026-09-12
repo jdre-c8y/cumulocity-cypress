@@ -191,10 +191,13 @@ describe("the spec back-end", () => {
     expect(text).not.toContain("afterEach(");
   });
 
-  it("emits no teardown in probe mode, whose spec is thrown away with the run", () => {
+  it("emits teardown in probe mode too: the spec is thrown away, the device is not", () => {
     const text = compile({ ir: b0ProbeIr(), mode: "probe", conventions: b0Conventions() }).text;
 
-    expect(text).not.toContain("afterEach(");
+    // A probe is the mode that fails on purpose, and Cypress runs afterEach after a failing
+    // test. Three probe runs of B0 stranded three real devices on a real tenant before this.
+    expect(text).toContain("afterEach(");
+    expect(text).toContain("?cascade=true");
   });
 
   it("refuses a provisional selector rather than emitting null.click()", () => {

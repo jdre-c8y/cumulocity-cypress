@@ -13,6 +13,20 @@
     "observedAt": { "type": "string" },
     "matchCount": { "type": "integer", "minimum": 0 },
     "matchedIndex": { "type": "integer", "minimum": -1 },
+    "scopeMissed": { "type": "boolean" },
+    "pageComponents": {
+      "type": "array",
+      "description": "Every custom element on the page, written when `within` matched nothing. It answers the question the wrong scope guess was asking, and unlike a page-wide walk it does not truncate.",
+      "items": {
+        "type": "object",
+        "required": ["tag", "count"],
+        "additionalProperties": false,
+        "properties": {
+          "tag": { "type": "string", "minLength": 1 },
+          "count": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
     "nodes": {
       "type": "array",
       "items": {

@@ -292,10 +292,11 @@ export function compile(input: CompileInput): CompileResult {
 
   // The model writes a flat step list; the compiler is where the .then() blocks go. Nesting is
   // a fact about Cypress's async chain, not a fact about the test.
-  // Only the spec back-end resets anything. A probe spec is thrown away with the run that made
-  // it, and a probe that dies partway never reaches an afterEach anyway - which is why the
-  // run manifest, not the emitted spec, is what covers a crashed run.
-  const removals = mode === "spec" ? removalsFor(ir, conventions) : [];
+  // Both back-ends reset. A probe spec is thrown away with the run that made it, but the device
+  // it created is not: that is real state on a real tenant, and a probe is the mode most likely
+  // to leave some, because a probe is the mode that fails on purpose. Cypress runs afterEach
+  // after a failing test, so the reset the spec would emit is the reset the probe needs.
+  const removals = removalsFor(ir, conventions);
 
   let depth = 0;
   const closers: string[] = [];

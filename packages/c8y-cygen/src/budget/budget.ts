@@ -76,10 +76,13 @@ export class Budget {
   }
 
   /**
-   * More than roughly three probe runs for one scenario reopens the Cypress-probe decision. It
-   * is a condition to watch, so it is reported rather than quietly enforced away.
+   * Roughly three probe runs for one scenario reopens the Cypress-probe decision. It is a
+   * condition to watch, so it is reported rather than quietly enforced away.
+   *
+   * Reaching the cap, not passing it. `mayRun` refuses the run that would pass it, so `>` is a
+   * condition this class makes unreachable - a tripwire that cannot fire watches nothing.
    */
   tripwireFired(): boolean {
-    return this.probe > this.limits.probeRuns;
+    return this.probe >= this.limits.probeRuns;
   }
 }

@@ -204,7 +204,10 @@ commands:
       kind: real-state
       role: setup
       uses: 60
-      returns: the created managed object
+      # Verified against the registration site: the command ends `.then(res => res.body.id)`,
+      # so it yields the id string. The declared type agrees - Chainable<string>. It said "the
+      # created managed object" here, which would have sent the model looking for `.id` on it.
+      returns: the id of the created managed object, as a string
       # There is no cy.deleteDevice in this repo. The house teardown is a cascade delete of the
       # managed object, written by hand. Recorded rather than papered over.
       pairsWith: null

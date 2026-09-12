@@ -16,6 +16,7 @@ import { runScenario, formatReport, type RunOptions } from "./runScenario.js";
 import { PRICE_TABLE_VERSION } from "../pricing/modelPricing.js";
 import { packagePath } from "../support/assets.js";
 import { b0Ir, b0ProbeIr, b0ProbePayloads } from "../testing/b0.js";
+import { withHeader } from "../workarea/provenance.js";
 import type { AuthorIrRequest, AuthorIrResult, CallsModel } from "../agent/callsModel.js";
 import type { CypressRunResult, RunRequest, RunsCypress } from "../cypress/cypressDriver.js";
 import type { IrDocument } from "../ir/types.js";
@@ -512,5 +513,40 @@ describe("files the run did not mean to write", () => {
     ).rejects.toThrow("Electron died");
 
     expect(lines.join("\n")).toContain("cypress/logs/failed-x.json");
+  });
+});
+
+describe("a run that never reaches spec mode", () => {
+  /** Replies with a probe IR forever, so the loop spends its probe runs and stops. */
+  function probeForever(repo: string) {
+    return runScenario(
+      options(repo, { callsModel: new ScriptedModel([fenced(b0ProbeIr())]) })
+    );
+  }
+
+  it("leaves the spec that was already there, which it did not write", async () => {
+    const repo = makeRepo();
+    // What a previous green run wrote and somebody committed. It carries a matching header, so
+    // the tool is permitted to delete it - the question is whether it should.
+    const committed = withHeader(
+      { toolVersion: "0.2.0", contractPath: CONTRACT },
+      "describe('committed and green', () => {});\n"
+    );
+    fs.writeFileSync(path.join(repo, SPEC), committed);
+
+    const report = await probeForever(repo);
+
+    expect(report.stopCondition).toBe("budget-exhausted");
+    expect(fs.readFileSync(path.join(repo, SPEC), "utf8")).toBe(committed);
+  });
+
+  it("still says why it stopped, though it has no score to say it in", async () => {
+    const repo = makeRepo();
+
+    const report = await probeForever(repo);
+
+    // The notes ride on the score, and this run has none. They are the run's whole output.
+    expect(report.tripwireFired).toBe(true);
+    expect(formatReport(report)).toContain("TRIPWIRE");
   });
 });

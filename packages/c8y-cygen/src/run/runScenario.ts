@@ -85,6 +85,12 @@ export interface RunReport {
   cost: RunTotals;
   tripwireFired: boolean;
   /**
+   * Everything the run needs to say that is not a score: the tripwire, the run gaps, the
+   * strays. The score carries these too, but a run that produces no spec has no score - and
+   * that is exactly the run whose notes are worth reading.
+   */
+  notes: string[];
+  /**
    * Files that appeared in the target repo's tree while the run was happening and are not the
    * spec or the working area. Ticket 09 §5: setup writes to the repo, runs do not.
    */
@@ -201,6 +207,8 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
     let lastSourceMap: SourceMap | undefined;
     let lastRunResult: CypressRunResult | null = null;
     let specContent = "";
+    // Whether THIS run wrote the spec file. Not the same as "a file is at that path".
+    let wroteSpec = false;
     let specRuns = 0;
     let green = false;
     let stop: StopCondition = "no-spec-produced";
@@ -417,6 +425,7 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
         previousIr = ir;
         break;
       }
+      wroteSpec = true;
       specContent = write.content;
       if (!write.formatted) {
         notes.push(
@@ -500,7 +509,12 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
 
     // A run that does not end green deletes its spec. An assist is not that failure: its spec
     // stays, marked not green, so the human can run the thing they are being asked about.
-    if (!green && stop !== "green" && interventions.length === 0) {
+    //
+    // Its spec, though - the one this run wrote. A run that never reached spec mode has nothing
+    // of its own at that path, and what is there is whatever was committed before it started.
+    // Deleting that destroys work nobody asked to lose, on the way to reporting a failure that
+    // had nothing to do with it.
+    if (wroteSpec && !green && stop !== "green" && interventions.length === 0) {
       discardSpec(specAbsolute);
     }
 
@@ -549,6 +563,7 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
       attempts: attemptLog.all(),
       cost,
       tripwireFired: budget.tripwireFired(),
+      notes,
       strays,
     };
   } catch (e) {
@@ -576,6 +591,9 @@ export function formatReport(report: RunReport): string {
       `  cost  $${report.cost.costUsd.toFixed(4)} over ${report.cost.iterations} iteration(s), ` +
         `${report.cost.totalRuns} Cypress run(s), ${report.cost.modelTurns} model turn(s)`
     );
+    // Only here. With a score, formatScore prints them, and printing them twice teaches a
+    // reader to skip the block.
+    for (const note of report.notes) lines.push(`  note  ${note}`);
   }
   lines.push("", formatStrays(report.strays));
   return lines.join("\n");

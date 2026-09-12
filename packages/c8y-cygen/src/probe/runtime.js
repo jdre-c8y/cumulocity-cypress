@@ -123,15 +123,70 @@ function writeFacts(payload) {
   return cy.writeFile(factsDir() + '/' + name + '-' + payload.kind + '.json', payload);
 }
 
+/** Caps the inventory below. A page with more distinct components than this has other problems. */
+var MAX_COMPONENTS = 120;
+
+/**
+ * Every custom element on the page, by tag name, with how many of it there are.
+ *
+ * This is what a missed scope needs. A scope is a guess - on the first look at a page nothing
+ * has been measured yet, so it can only be a guess - and the question behind every wrong guess
+ * is the same one: what are these things actually called. So the answer travels back with the
+ * miss. It is a few dozen short strings and it does not truncate, which a page-wide walk
+ * bounded at MAX_NODES would.
+ */
+function pageComponents(body) {
+  var counts = {};
+  var all = body.getElementsByTagName('*');
+  for (var i = 0; i < all.length; i++) {
+    var tag = all[i].tagName.toLowerCase();
+    if (tag.indexOf('-') === -1) continue;
+    counts[tag] = (counts[tag] || 0) + 1;
+  }
+  return Object.keys(counts)
+    .sort()
+    .slice(0, MAX_COMPONENTS)
+    .map(function (tag) {
+      return { tag: tag, count: counts[tag] };
+    });
+}
+
 /**
  * Marks where the probe looks. Always scoped: an unscoped Cumulocity page yields a candidate
  * table far larger than the flow needs, and an automatic collect has no way to choose a scope,
  * so it would be unscoped by construction.
+ *
+ * A scope that matches nothing costs its own rows and nothing else. `cy.get(within)` fails the
+ * test instead, and one failed collect takes every later collect in the same probe with it - so
+ * a single wrong guess returns zero facts, and the next iteration guesses just as blindly as
+ * the one that missed. The miss is recorded instead, carrying the page's component inventory,
+ * which answers the question the wrong guess was asking.
  */
 Cypress.Commands.add('c8yCygenCollect', function (options) {
   var label = options.label;
   var within = options.within;
-  return cy.get(within).then(function ($scope) {
+  return cy.get('body').then(function ($body) {
+    var observedAt = new Date().toISOString();
+    var $scope = null;
+    try {
+      $scope = within ? $body.find(within) : $body;
+    } catch {
+      // A selector the model made up may not even parse. That is a miss like any other.
+      $scope = null;
+    }
+
+    if (!$scope || $scope.length === 0) {
+      return writeFacts({
+        kind: 'collect',
+        label: label,
+        within: within,
+        scopeMissed: true,
+        pageComponents: pageComponents($body[0]),
+        observedAt: observedAt,
+        nodes: []
+      });
+    }
+
     var nodes = [];
     $scope.each(function (_i, el) {
       var offset = nodes.length;
@@ -146,7 +201,8 @@ Cypress.Commands.add('c8yCygenCollect', function (options) {
       kind: 'collect',
       label: label,
       within: within,
-      observedAt: new Date().toISOString(),
+      scopeMissed: false,
+      observedAt: observedAt,
       nodes: nodes
     });
   });

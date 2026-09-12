@@ -244,3 +244,64 @@ describe("summariseFacts", () => {
     });
   });
 });
+
+describe("a scope that matched nothing", () => {
+  const MISS = {
+    kind: "collect",
+    label: "events-page",
+    within: "c8y-tab-view",
+    scopeMissed: true,
+    pageComponents: [
+      { tag: "c8y-events-list", count: 1 },
+      { tag: "c8y-tabs-outlet", count: 1 },
+      { tag: "c8y-nav-node", count: 12 },
+    ],
+    observedAt: "2026-09-11T20:21:00.000Z",
+    nodes: [],
+  };
+
+  it("is a payload the boundary accepts", () => {
+    expect(parsePayload(JSON.stringify(MISS), "x.json")).toMatchObject({ scopeMissed: true });
+  });
+
+  it("reads as an empty surface rather than as no surface at all", () => {
+    withTempDir((dir) => {
+      fs.writeFileSync(path.join(dir, "001-collect.json"), JSON.stringify(MISS));
+
+      const facts = readFacts(dir, { runId: "r1", tenantUrl: "https://t.example" });
+
+      expect(facts.surfaces).toHaveLength(1);
+      expect(facts.surfaces[0]).toMatchObject({
+        label: "events-page",
+        within: "c8y-tab-view",
+        scopeMissed: true,
+        rows: [],
+      });
+    });
+  });
+
+  it("tells the model what the page carries, which is what the wrong guess was asking", () => {
+    withTempDir((dir) => {
+      fs.writeFileSync(path.join(dir, "001-collect.json"), JSON.stringify(MISS));
+      const facts = readFacts(dir, { runId: "r1", tenantUrl: "https://t.example" });
+
+      const summary = summariseFacts(facts);
+
+      // Three probe runs of B0 guessed c8y-tab-view, then c8y-event-list, then c8y-tab-view
+      // again, because a miss returned nothing to guess better from.
+      expect(summary).toMatch(/NOTHING MATCHED THAT SCOPE/);
+      expect(summary).toContain("c8y-events-list");
+      expect(summary).toContain("c8y-nav-node x12");
+    });
+  });
+
+  it("does not claim rows it never collected", () => {
+    withTempDir((dir) => {
+      fs.writeFileSync(path.join(dir, "001-collect.json"), JSON.stringify(MISS));
+      const facts = readFacts(dir, { runId: "r1", tenantUrl: "https://t.example" });
+
+      expect(summariseFacts(facts)).not.toMatch(/events-page#/);
+    });
+  });
+});
+

@@ -9,8 +9,21 @@ import utc from 'dayjs/plugin/utc';
 dayjs.extend(utc);
 
 describe('Tests for device events [probe]', () => {
+  let createdDeviceId: string | undefined;
+
   beforeEach(() => {
     cy.login(Cypress.env('username'), Cypress.env('password'));
+  });
+
+  afterEach(() => {
+    if (createdDeviceId) {
+      cy.request({
+        url: \`/inventory/managedObjects/\${createdDeviceId}?cascade=true\`,
+        method: 'DELETE',
+        failOnStatusCode: false
+      });
+      createdDeviceId = undefined;
+    }
   });
 
   it('probe: Verify the event for a device shows respective event details', () => {
@@ -18,6 +31,7 @@ describe('Tests for device events [probe]', () => {
 
     cy.createDevice({ name: deviceName });
     cy.getDeviceIdByName(deviceName).then((deviceId: any) => {
+      createdDeviceId = deviceId;
       cy.request('/event/events', 'POST', { source: { id: deviceId }, type: 'c8y_LocationUpdate', text: 'Location update', c8y_Position: { lat: 52.534925, lng: 17.582658 }, time: dayjs().format('YYYY-MM-DDTHH:mm:ssZ') });
       cy.visitAndWaitUntilPageLoad(\`/apps/devicemanagement/index.html#/device/\${deviceId}/events\`, false);
       cy.c8yCygenCollect({ label: 'events-page', within: 'c8y-device-events' });

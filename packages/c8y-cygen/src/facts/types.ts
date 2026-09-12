@@ -64,6 +64,12 @@ export interface CandidateRow {
   repeat: { siblingsLike: number; index: number };
 }
 
+/** One custom element the page carries, and how many of it there are. */
+export interface PageComponent {
+  tag: string;
+  count: number;
+}
+
 /** The elements one collect point gathered, bounded by its `within`. */
 export interface CollectedSurface {
   label: string;
@@ -72,6 +78,13 @@ export interface CollectedSurface {
   cacheKey: string;
   observedAt: string;
   rows: CandidateRow[];
+  /**
+   * True when `within` matched nothing. The surface is then empty rather than absent: a scope is
+   * a guess, and a guess that misses has to cost its own rows and nothing else.
+   */
+  scopeMissed?: boolean;
+  /** Written only on a miss: what the page's components are actually called. */
+  pageComponents?: PageComponent[];
 }
 
 /**
