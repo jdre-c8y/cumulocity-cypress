@@ -373,6 +373,15 @@ export function lintIr(input: LintInput): LintResult {
     }
     if (step.visit) checkValue(where, step.visit.path, inScope);
     if (step.request) checkValue(where, step.request.url, inScope);
+    // A route is a URL the model writes, so it carries `${groupId}` exactly as a visit path
+    // does - and it was the one URL nothing checked. An unbound reference or a missing dollar
+    // there emits a route matching nothing, which reports nothing.
+    for (const r of [step.stub?.route, step.sync?.route]) {
+      if (!r) continue;
+      if (r.url !== undefined) checkValue(where, r.url, inScope);
+      if (r.pathname !== undefined) checkValue(where, r.pathname, inScope);
+      for (const v of Object.values(r.query ?? {})) checkValue(where, v, inScope);
+    }
 
     // --- the helper is real, and blessed --------------------------------------------
     if (step.callRepoHelper) {
@@ -409,6 +418,17 @@ export function lintIr(input: LintInput): LintResult {
           );
         }
       });
+    }
+
+    // --- an assertion the compiler could emit -------------------------------------------
+    // Refused here and not only in the compiler. The schema puts `negate` alongside a four-value
+    // `compare` enum with nothing relating them, so the model will try this combination - and a
+    // CompileError during a spec compile ends the run rather than costing a turn.
+    if (step.assert?.negate && step.assert.compare === "withinMinutesOfNow") {
+      add(
+        where,
+        `withinMinutesOfNow cannot be negated: inverted, it is satisfied by any time outside the window, a failed parse included. Assert the window you do expect.`
+      );
     }
 
     // --- a route that can be emitted at all --------------------------------------------
@@ -464,6 +484,27 @@ export function lintIr(input: LintInput): LintResult {
           );
         }
       }
+      // Paths, checked against the very body the compiler will apply them to. The linter has
+      // the facts in hand, so leaving this to the compiler meant a typo'd path lint clean and
+      // then throw - and a throw during a spec compile ends the run instead of costing a turn.
+      const observedBody = facts ? findRequest(facts, body.fromRequest)?.body : undefined;
+      const pathsSeen = new Set<string>();
+      for (const mutation of body.mutations ?? []) {
+        if (pathsSeen.has(mutation.path)) {
+          add(
+            where,
+            `two mutations write '${mutation.path}'. One of them would be discarded silently; say once what the field should hold.`
+          );
+        }
+        pathsSeen.add(mutation.path);
+        if (observedBody !== undefined && !pathExists(observedBody, mutation.path)) {
+          add(
+            where,
+            `stub mutation path '${mutation.path}' names nothing in the observed body of '${body.fromRequest}'. A path addresses a field that is already there, e.g. 'managedObjects.0.name' - a mutation cannot add one.`
+          );
+        }
+      }
+
       // The other half of rule 3. An observed body with one field quietly replaced by an
       // invented literal is the fabrication the rule exists to stop, and it is invisible in the
       // emitted spec because every other field is genuine.
@@ -579,11 +620,29 @@ export function lintIr(input: LintInput): LintResult {
     const step = ir.steps[i] as IrStep;
     const verb = verbsOf(step).find((v) => INTERCEPT_VERBS.includes(v));
     if (!verb) continue;
-    if (ir.steps.slice(i + 1).some(triggersRequest)) continue;
-    add(
-      `steps.${step.id}`,
-      `'${verb}' is registered after the last step that could trigger a request, so the route can never fire and nothing will report that. An intercept goes above the visit or click whose traffic it matches, or into setup.`
-    );
+
+    const before = ir.steps.slice(0, i);
+    const lastVisit = before.map((s) => s.visit !== undefined).lastIndexOf(true);
+
+    if (!ir.steps.slice(i + 1).some(triggersRequest)) {
+      add(
+        `steps.${step.id}`,
+        `'${verb}' is registered after the last step that could trigger a request, so the route can never fire and nothing will report that. An intercept goes above the visit or click whose traffic it matches, or into setup.`
+      );
+    } else if (lastVisit >= 0 && !before.slice(lastVisit + 1).some((s) => s.click !== undefined)) {
+      // The page load this follows has already asked for everything it is going to ask for, and
+      // registering a route afterwards is accepted in silence - so the page renders against the
+      // real tenant while the spec reads as fully mocked.
+      //
+      // A click between the visit and here is the exception, and the only one: it means the flow
+      // has moved on and this route is for traffic some later interaction will trigger. Two
+      // visits with stubs between them land in this branch too, and correctly - registering a
+      // route early always works, so moving it above the first visit costs nothing.
+      add(
+        `steps.${step.id}`,
+        `'${verb}' is registered after the visit at '${(before[lastVisit] as IrStep).id}', whose traffic has already gone. Cypress accepts the route and reports nothing, so the page loads against the real tenant while this spec reads as mocked. Move it above the visit, or into setup.`
+      );
+    }
   }
 
   // --- the alias vocabulary --------------------------------------------------------------
@@ -745,7 +804,18 @@ export function lintIr(input: LintInput): LintResult {
             );
           }
           // Counted, not refused. See StubSatisfied for why this one is a judgement.
-          for (const token of [...namesIn(v), ...(typeof v === "string" ? [v] : [])]) {
+          // Read from both ends. Resolving vars on the stub side alone missed the commonest
+          // shape there is: the stub writes the string, and the assertion reaches for the var
+          // that holds it. A report that understates the number it exists to surface is worse
+          // than no report, because a grader reads it and believes it.
+          const tokens = new Set<string>();
+          for (const name of namesIn(v)) {
+            tokens.add(name);
+            const bound = (ir.vars ?? {})[name];
+            if (typeof bound === "string") tokens.add(bound);
+          }
+          if (typeof v === "string") tokens.add(v);
+          for (const token of tokens) {
             const via = stubbed.get(token);
             if (via !== undefined) noteStub(outcome.id, via);
           }
@@ -776,6 +846,29 @@ export function lintIr(input: LintInput): LintResult {
   };
 }
 
+
+/**
+ * Whether a dotted path addresses a field the observed body actually has.
+ *
+ * The same walk the compiler performs, asked as a question. It has to agree with
+ * `emitStubBody`'s traversal exactly - a path this accepts and that refuses is a lint pass
+ * followed by a run-ending throw, which is the failure this check exists to remove.
+ */
+function pathExists(body: unknown, path: string): boolean {
+  let node: unknown = body;
+  for (const segment of path.split(".")) {
+    if (node === null || typeof node !== "object") return false;
+    if (Array.isArray(node)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index) || index < 0 || index >= node.length) return false;
+      node = node[index];
+      continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(node, segment)) return false;
+    node = (node as Record<string, unknown>)[segment];
+  }
+  return true;
+}
 
 /** Every bound name a value reaches for, whether by `ref` or by `${...}` inside a string. */
 function namesIn(value: IrValue): string[] {

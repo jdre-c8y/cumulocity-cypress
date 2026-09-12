@@ -346,3 +346,103 @@ describe("a negated assertion, which an outcome phrased as 'and not' needs", () 
     ).toThrow(/withinMinutesOfNow/);
   });
 });
+
+describe("what a route string is allowed to be", () => {
+  it("interpolates a bound name in a route, rather than emitting a literal dollar-brace", () => {
+    // The v1 defect this package's emitInterpolated docblock exists to prevent, reappearing in
+    // the one place that did not use it. A route carrying '${groupId}' as two literal characters
+    // matches no URL any application asks for - and an intercept that never fires reports
+    // nothing at all, so the page just loads against the real tenant.
+    const text = specOf(
+      [
+        {
+          id: "stub-group",
+          stub: {
+            route: { method: "GET", url: "/inventory/managedObjects/${groupId}*" },
+            fromRequest: "boot#1",
+          },
+        },
+      ],
+      { groupId: "12345" }
+    );
+
+    expect(text).toContain("cy.intercept('GET', `/inventory/managedObjects/${groupId}*`,");
+    expect(text).not.toContain("'/inventory/managedObjects/${groupId}*'");
+  });
+
+  it("interpolates inside the object form too, pathname and query alike", () => {
+    const text = specOf(
+      [
+        {
+          id: "stub-dash",
+          sync: {
+            route: {
+              pathname: "/inventory/managedObjects/${groupId}",
+              query: { query: "$filter=has('x!${groupId}')" },
+            },
+            alias: "objects",
+          },
+        },
+      ],
+      { groupId: "12345" }
+    );
+
+    expect(text).toContain("pathname: `/inventory/managedObjects/${groupId}`");
+    expect(text).toContain("query: `$filter=has('x!${groupId}')`");
+  });
+});
+
+describe("handing Cypress a body it cannot mistake for something else", () => {
+  const withFragment = (fragment: string) => {
+    const f = facts();
+    (f.requests[1] as { body: unknown }).body = { id: "12345", [fragment]: "x" };
+    return compile({
+      ir: irWith([
+        { id: "s", stub: { route: { method: "GET", url: "/x*" }, fromRequest: "boot#1" } },
+      ]),
+      mode: "spec",
+      conventions: b0Conventions(),
+      facts: f,
+    }).text;
+  };
+
+  it("wraps an observed body that carries a StaticResponse key", () => {
+    // Cypress decides between "this is the body" and "this is response metadata" by looking for
+    // keys like body, headers, statusCode, delay and log. Cumulocity managed objects carry
+    // arbitrary tenant-defined fragments, so a device with a `headers` fragment would be served
+    // as a StaticResponse with an empty body - the route fires, returns nothing, and the spec
+    // fails a long way from the stub.
+    expect(withFragment("headers")).toContain("cy.intercept('GET', '/x*', { body: {");
+    expect(withFragment("statusCode")).toContain("{ body: {");
+    expect(withFragment("log")).toContain("{ body: {");
+  });
+
+  it("leaves an ordinary body bare, which is how the corpus writes it", () => {
+    expect(withFragment("c8y_IsDevice")).toContain(
+      "cy.intercept('GET', '/x*', { id: '12345', c8y_IsDevice: 'x' });"
+    );
+  });
+});
+
+describe("mutations that quietly lose one of themselves", () => {
+  it("refuses two mutations on the same path", () => {
+    // `new Map(mutations.map(...))` silently keeps the last. The first vanishes with no
+    // diagnostic, and because the pending set still empties, the matches-nothing guard cannot
+    // fire either - so the stub serves a body the IR does not describe.
+    expect(() =>
+      specOf([
+        {
+          id: "s",
+          stub: {
+            route: { method: "GET", url: "/x*" },
+            fromRequest: "boot#1",
+            mutations: [
+              { path: "name", value: "first" },
+              { path: "name", value: "second" },
+            ],
+          },
+        },
+      ])
+    ).toThrow(/'name'/);
+  });
+});

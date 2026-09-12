@@ -231,6 +231,7 @@ export function b1Ir(): IrDocument {
     vars: {
       groupName: B1_GROUP_NAME,
       deviceName: B1_DEVICE_NAME,
+      deviceId: B1_DEVICE_ID,
     },
     steps: [
       {
@@ -246,6 +247,15 @@ export function b1Ir(): IrDocument {
               path: "managedObjects.0.c8y_Dashboard.children.3413512173.config.device.name",
               value: { ref: "deviceName" },
             },
+            // The id as well as the name. Mutating only the name left the widget configured
+            // with the observed tenant's device 9999 while the only device stubbed was 2000,
+            // so the widget would resolve its device against the real tenant and 404. Nothing
+            // catches this: each literal is anchored to the contract, and no rule asks whether
+            // the set of stubs is consistent with itself.
+            {
+              path: "managedObjects.0.c8y_Dashboard.children.3413512173.config.device.id",
+              value: { ref: "deviceId" },
+            },
           ],
         },
       },
@@ -260,7 +270,11 @@ export function b1Ir(): IrDocument {
       {
         id: "serve-device",
         stub: {
-          route: { method: "GET", url: `/inventory/managedObjects/${B1_DEVICE_ID}` },
+          // Globbed, like every sibling stub. The contract's Setup asks for the device "by id
+          // both with and without `withChildren=true`", and Cypress matches a string URL
+          // exactly unless it carries glob characters - so the bare path missed the variant the
+          // contract explicitly names, and that request fell through to the tenant.
+          route: { method: "GET", url: `/inventory/managedObjects/${B1_DEVICE_ID}*` },
           fromRequest: "dashboard.network#2",
           mutations: [{ path: "name", value: { ref: "deviceName" } }],
         },

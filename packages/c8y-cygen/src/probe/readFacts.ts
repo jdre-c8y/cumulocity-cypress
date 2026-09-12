@@ -50,6 +50,8 @@ export interface ProbePayload {
   pageComponents?: PageComponent[];
   /** Present on a `network` payload, and on no other. */
   requests?: RawExchange[];
+  /** How many exchanges the browser saw past its cap and did not record. */
+  droppedExchanges?: number;
   /** Present on a `collect` or `provisional` payload, and on no other. */
   nodes?: RawNode[];
 }
@@ -121,6 +123,7 @@ export function readFacts(dir: string, options: ReadFactsOptions): FactsDocument
   const surfaces: CollectedSurface[] = [];
   const provisionalMatches: ProvisionalMatch[] = [];
   const requests: ObservedRequest[] = [];
+  let exchangesDropped = 0;
   // Row ids are `<label>#<index>` and the browser restarts the index at 0 on every collect, so
   // two collects sharing a label produce two surfaces with fully overlapping ids. The re-probe
   // rung makes that the normal case: it re-collects the scope that failed, under the label the
@@ -159,6 +162,7 @@ export function readFacts(dir: string, options: ReadFactsOptions): FactsDocument
     const label = uniqueLabel(payload.label);
 
     if (payload.kind === "network") {
+      exchangesDropped += payload.droppedExchanges ?? 0;
       // Ids are `<label>#<index>` for the same reason rows are: a stub names one of these from
       // a later, stateless model turn, so identity cannot be a position in an array.
       (payload.requests ?? []).forEach((exchange, i) => {
@@ -218,6 +222,7 @@ export function readFacts(dir: string, options: ReadFactsOptions): FactsDocument
     surfaces,
     provisionalMatches,
     requests,
+    ...(exchangesDropped > 0 ? { exchangesDropped } : {}),
     complete: options.complete ?? false,
   };
 }
@@ -278,7 +283,11 @@ function describeBody(body: unknown, depth = 0): string {
  * be tokens spent on work the ladder already did. The candidate table is the largest text the
  * tool would ever send.
  */
-export function summariseFacts(facts: FactsDocument, maxRowsPerSurface = 120): string {
+export function summariseFacts(
+  facts: FactsDocument,
+  maxRowsPerSurface = 120,
+  maxExchanges = 60
+): string {
   const lines: string[] = [];
   for (const surface of facts.surfaces) {
     // A missed scope is reported as a miss, not as an empty surface. An empty surface reads as
@@ -332,7 +341,10 @@ export function summariseFacts(facts: FactsDocument, maxRowsPerSurface = 120): s
   // exchange and the compiler reads the body, so it never sees a body to retype.
   if (facts.requests.length > 0) {
     lines.push("", "# network exchanges a stub may derive from");
-    for (const r of facts.requests) {
+    // Bounded like the rows above, and for the same reason: this block goes into every prompt
+    // of every later iteration, on a metered API, and each line carries a body shape three
+    // levels deep plus a decoded query string that can be 180 characters on its own.
+    for (const r of facts.requests.slice(0, maxExchanges)) {
       const query = r.query
         ? "  ?" +
           Object.entries(r.query)
@@ -345,6 +357,18 @@ export function summariseFacts(facts: FactsDocument, maxRowsPerSurface = 120): s
           : `  ${describeBody(r.body)}`;
       lines.push(`${r.id}  ${r.method} ${r.pathname} -> ${r.status}${query}${size}`);
     }
+    if (facts.requests.length > maxExchanges) {
+      lines.push(
+        `... ${facts.requests.length - maxExchanges} further exchange(s), still on disk. Name a ` +
+          `narrower collect point to see the ones from the state you care about.`
+      );
+    }
+  }
+  if (facts.exchangesDropped) {
+    lines.push(
+      `NOTE the probe saw ${facts.exchangesDropped} further exchange(s) past its per-flush cap ` +
+        `and did not record them. If the one you need is absent, collect closer to the traffic.`
+    );
   }
   return lines.join("\n");
 }

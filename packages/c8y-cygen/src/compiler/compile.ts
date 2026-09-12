@@ -185,7 +185,7 @@ function emitStepStatement(
       if (mode === "probe") return null;
       return emitStub(step.stub!, ctx, step.id);
     case "sync":
-      return emitSync(step.sync!);
+      return emitSync(step.sync!, ctx);
     case "waitFor":
       return emitWaitFor(step.waitFor!, step.id);
     case "click":

@@ -52,11 +52,11 @@ describe("B1, the intercept tier, end to end", () => {
     expect(emitted()).toContain(B1_DASHBOARD_FILTER);
   });
 
-  it("emits five intercepts, four of them serving an observed body", () => {
+  it("emits four intercepts, each serving an observed body", () => {
     const text = emitted();
 
     expect(text.match(/cy\.intercept\(/g) ?? []).toHaveLength(4);
-    expect(text).toContain("cy.intercept('GET', '/inventory/managedObjects/2000',");
+    expect(text).toContain("cy.intercept('GET', '/inventory/managedObjects/2000*',");
     expect(text).toContain("pathname: '/inventory/managedObjects'");
   });
 
@@ -76,18 +76,40 @@ describe("B1, the intercept tier, end to end", () => {
     expect(text).toContain("cy.contains('span', 'e2eDevice').should('not.contain.text', groupName);");
   });
 
-  it("resolves the chip by its own text, which makes half of outcome 2 circular", () => {
-    // A finding about B1, recorded rather than smoothed over. The chip carries no data-cy, so
-    // the ladder identifies it by the very text outcome 2 then asserts - `cy.contains('span',
-    // 'e2eDevice').should('contain.text', deviceName)` cannot fail on the text, only on the
-    // element being absent. The denial half is a real check and so is the name field after each
-    // save, so outcome 2 is not unasserted; it is weaker than it reads.
+  it("resolves the chip by its own text, which makes BOTH halves of outcome 2 circular", () => {
+    // A finding about B1, recorded rather than smoothed over - and corrected. The chip carries
+    // no data-cy, so the ladder identifies it by the very text outcome 2 asserts.
     //
-    // The hand-written oracle avoids this by reaching the chip through a data-cy ancestor
-    // (`[data-cy="Asset selection"]`).parent().find('.chip, .tag')), a path shape the ladder
-    // does not build. This is the axis C and D observation a grader needs, and the reason it is
-    // a test: a silent assertion that cannot fail is exactly what axis B exists to catch.
-    expect(emitted()).toContain("cy.contains('span', 'e2eDevice').should('contain.text', deviceName);");
+    // The positive half cannot fail on the text: `cy.contains('span','e2eDevice')` either
+    // resolves or the step fails on absence. The denial half is circular for the same reason,
+    // which an earlier version of this comment got wrong by calling it "a real check" - its
+    // subject is *the span containing the device name*, so it can only fail if that same span
+    // also contains the group name. If the selector regressed and showed the group instead, the
+    // step would fail on absence, not on the denial.
+    //
+    // So outcome 2 asserts nothing about the asset-selector container the contract names. The
+    // name field after each save (outcomes 3 and 4) is the load-bearing check in this spec.
+    // The hand-written oracle avoids the circularity by reaching the chip through a data-cy
+    // ancestor - `[data-cy="Asset selection"]).parent().find('.chip, .tag')` - a path shape the
+    // ladder does not build. That is the axis C and D observation a grader needs.
+    expect(emitted()).toContain(
+      "cy.contains('span', 'e2eDevice').should('contain.text', deviceName);"
+    );
+    expect(emitted()).toContain(
+      "cy.contains('span', 'e2eDevice').should('not.contain.text', groupName);"
+    );
+  });
+
+  it("stubs every id the stubbed dashboard points at", () => {
+    // The consistency nothing else checks. Each literal in a mutation is anchored to the
+    // contract one at a time, but no rule asks whether the widget's configured device is a
+    // device this spec actually serves - and an unstubbed id falls through to the real tenant
+    // and 404s, far from the stub that caused it.
+    const text = emitted();
+    const configured = /config: \{ device: \{ name: \w+, id: (\w+) \} \}/.exec(text);
+
+    expect(configured?.[1]).toBe("deviceId");
+    expect(text).toContain("cy.intercept('GET', '/inventory/managedObjects/2000*'");
   });
 
   it("reads the name field by value after each save, which is the actual subject", () => {

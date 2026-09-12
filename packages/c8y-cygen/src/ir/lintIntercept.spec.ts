@@ -296,36 +296,41 @@ describe("the anti-gaming record, which is reported rather than refused", () => 
   });
 });
 
-describe("what the ordering rule must NOT refuse", () => {
+describe("where the ordering rule draws its line, and why there", () => {
   const secondVisit: IrStep = { id: "go2", visit: { path: "/apps/cockpit/index.html#/other" } };
+  const click = (id: string): IrStep => ({
+    id,
+    click: {
+      target: {
+        resolved: "cy.get('[data-cy=\"c8y-title--title-outlet\"]')",
+        fromRow: "page#0",
+      },
+    },
+  });
 
-  it("allows a second page's stubs to sit between the two visits", () => {
-    // The stricter reading of this rule - "every intercept before the first visit" - refused
-    // this, which is a legitimate and ordinary flow. A linter that spends a turn telling the
-    // model to break working code is worse than one rule short.
+  it("refuses a second page's stubs sitting between the two visits", () => {
+    // Refused, and the remedy is free: registering a route before the FIRST visit catches the
+    // second page's traffic just as well, because a route stays registered for the whole test.
+    // An earlier version of this rule allowed this shape - and allowing it meant allowing B1's
+    // real hazard too, since the two are indistinguishable from step order alone.
     const result = lintIr(
       input([stub(), visit, { ...stub(), id: "stub-2" }, secondVisit, TITLE])
     );
 
-    expect(result.errors).toEqual([]);
+    expect(result.errors.map((e) => e.message).join("\n")).toMatch(/already gone/);
   });
 
-  it("allows a stub for traffic a later click triggers", () => {
+  it("refuses a stub placed after a visit with no interaction in between", () => {
+    const result = lintIr(input([visit, { ...stub(), id: "stub-lazy" }, click("expand"), TITLE]));
+
+    expect(result.errors.map((e) => e.message).join("\n")).toMatch(/already gone/);
+  });
+
+  it("allows a stub once the flow has interacted, where moving it up may be impossible", () => {
+    // The one case with no free remedy: past a click, a stub's body or route may depend on
+    // something the flow only learned by interacting, so it cannot be hoisted above the visit.
     const result = lintIr(
-      input([
-        visit,
-        { ...stub(), id: "stub-lazy" },
-        {
-          id: "expand",
-          click: {
-            target: {
-              resolved: "cy.get('[data-cy=\"c8y-title--title-outlet\"]')",
-              fromRow: "page#0",
-            },
-          },
-        },
-        TITLE,
-      ])
+      input([visit, click("expand"), { ...stub(), id: "stub-lazy" }, click("expand-2"), TITLE])
     );
 
     expect(result.errors).toEqual([]);
@@ -385,5 +390,128 @@ describe("a mutation that is not a mutation", () => {
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.map((e) => e.message).join("\n")).toMatch(/schema/);
+  });
+});
+
+describe("everything the compiler would throw on, caught where it costs a turn instead of a run", () => {
+  // runScenario's only try/catch logs strays and rethrows, so a CompileError during a spec
+  // compile ends the run. The linter is the loop's stop condition, and the invariant it rests
+  // on is that an IR which lints is an IR that compiles.
+
+  it("refuses a mutation path that names nothing in the observed body", () => {
+    const result = lintIr(
+      input([stub({ mutations: [{ path: "nmae", value: "e2eWidgetGroup" }] }), visit, TITLE])
+    );
+
+    expect(result.errors.map((e) => e.message).join("\n")).toMatch(/'nmae'/);
+  });
+
+  it("accepts a path that walks into an array by index", () => {
+    const deep = facts();
+    (deep.requests[0] as { body: unknown }).body = {
+      managedObjects: [{ name: "realGroup" }],
+    };
+
+    const result = lintIr({
+      ...input(
+        [
+          stub({
+            fromRequest: "boot#0",
+            mutations: [{ path: "managedObjects.0.name", value: "e2eWidgetGroup" }],
+          }),
+          visit,
+          TITLE,
+        ]
+      ),
+      facts: deep,
+    });
+
+    expect(result.errors).toEqual([]);
+  });
+
+  it("refuses two mutations writing one path", () => {
+    const result = lintIr(
+      input([
+        stub({
+          mutations: [
+            { path: "name", value: "e2eWidgetGroup" },
+            { path: "name", value: "e2eWidgetGroup" },
+          ],
+        }),
+        visit,
+        TITLE,
+      ])
+    );
+
+    expect(result.errors.map((e) => e.message).join("\n")).toMatch(/'name'/);
+  });
+
+  it("refuses a negated time-window comparison", () => {
+    const result = lintIr(
+      input([
+        visit,
+        {
+          id: "see-title",
+          assert: {
+            target: {
+              resolved: "cy.get('[data-cy=\"c8y-title--title-outlet\"]')",
+              fromRow: "page#0",
+            },
+            extract: "text",
+            compare: "withinMinutesOfNow",
+            negate: true,
+            operand: 3,
+          },
+        },
+      ])
+    );
+
+    expect(result.errors.map((e) => e.message).join("\n")).toMatch(/withinMinutesOfNow/);
+  });
+
+  it("checks a route string for an unbound reference and for a missing dollar", () => {
+    const unbound = lintIr(
+      input([stub({ route: { method: "GET", url: "/inventory/${nope}*" } }), visit, TITLE])
+    );
+    const missingDollar = lintIr(
+      input(
+        [stub({ route: { method: "GET", url: "/inventory/{groupId}*" } }), visit, TITLE],
+        { vars: { groupId: "12345" } }
+      )
+    );
+
+    expect(unbound.errors.map((e) => e.message).join("\n")).toMatch(/nope/);
+    expect(missingDollar.errors.map((e) => e.message).join("\n")).toMatch(/missing its dollar/);
+  });
+});
+
+describe("the stub-satisfied count, read from both ends", () => {
+  it("counts a stub that writes a literal read back through a ref", () => {
+    // The commonest shape and the one the first version missed: the stub writes the string, the
+    // assertion reaches for the var that holds it. Resolving vars on the stub side only made the
+    // report understate the number it exists to surface.
+    const result = lintIr(
+      input(
+        [
+          stub({ mutations: [{ path: "name", value: "e2eWidgetGroup" }] }),
+          visit,
+          {
+            id: "see-title",
+            assert: {
+              target: {
+                resolved: "cy.get('[data-cy=\"c8y-title--title-outlet\"]')",
+                fromRow: "page#0",
+              },
+              extract: "text",
+              compare: "includes",
+              operand: { ref: "groupName" },
+            },
+          },
+        ],
+        { vars: { groupName: "e2eWidgetGroup" } }
+      )
+    );
+
+    expect(result.stubSatisfied).toEqual([{ outcome: 1, via: "e2eWidgetGroup" }]);
   });
 });

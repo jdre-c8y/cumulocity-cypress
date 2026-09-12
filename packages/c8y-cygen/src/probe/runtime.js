@@ -167,9 +167,16 @@ var MAX_BODY_CHARS = 20000;
 var MAX_EXCHANGES = 200;
 
 var observed = [];
+var dropped = 0;
 
 function recordExchange(req, res) {
-  if (observed.length >= MAX_EXCHANGES) return;
+  if (observed.length >= MAX_EXCHANGES) {
+    // Counted, not silent. An absent exchange is otherwise indistinguishable from a call the
+    // application never made, and the model told "no probe observed that" will re-probe and
+    // truncate in exactly the same place.
+    dropped += 1;
+    return;
+  }
 
   var body = res.body;
   // A string that happens to be JSON is still JSON. Cypress parses by content-type and the
@@ -224,6 +231,7 @@ function watchable(req) {
 
 beforeEach(function () {
   observed = [];
+  dropped = 0;
   cy.intercept({ url: '**', middleware: true }, function (req) {
     if (!watchable(req)) return;
     req.on('response', function (res) {
@@ -247,11 +255,14 @@ beforeEach(function () {
  */
 function writeNetwork(label) {
   var batch = observed;
+  var lost = dropped;
   observed = [];
+  dropped = 0;
   return writeFacts({
     kind: 'network',
     label: label + '.network',
     observedAt: new Date().toISOString(),
+    droppedExchanges: lost,
     requests: batch
   });
 }

@@ -27,6 +27,11 @@
         }
       }
     },
+    "droppedExchanges": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many exchanges the browser saw past its cap and did not record. Reported rather than silent, for the reason bodyDropped is: an absent exchange is otherwise indistinguishable from a call the application never made."
+    },
     "requests": {
       "type": "array",
       "description": "Network exchanges the probe watched. Ticket 02's rule 3 says a fabricated response body must derive from a response the probe actually observed, and this is where the observation lives. Without it every stub would be invented from nothing.",

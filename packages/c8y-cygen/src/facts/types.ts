@@ -148,6 +148,13 @@ export interface FactsDocument {
   surfaces: CollectedSurface[];
   provisionalMatches: ProvisionalMatch[];
   requests: ObservedRequest[];
+  /**
+   * Exchanges the browser saw past its per-flush cap and did not record. Reported for the same
+   * reason `bodyDropped` is: without it, the one exchange a stub needs can be missing with no
+   * way to tell truncation from a call the application never made - and the model, told the
+   * exchange was never observed, re-probes and truncates identically.
+   */
+  exchangesDropped?: number;
   /** false when the probe died before its last collect point. Valid, just partial. */
   complete: boolean;
 }

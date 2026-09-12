@@ -17,7 +17,7 @@ import type {
   SyncBody,
   WaitForBody,
 } from "../ir/types.js";
-import type { FactsDocument } from "../facts/types.js";
+import { findRequest, type FactsDocument } from "../facts/types.js";
 
 export class CompileError extends Error {
   constructor(message: string) {
@@ -109,7 +109,7 @@ export function emitValue(value: IrValue, ctx: EmitContext): string {
   }
   if ("object" in value) {
     const entries = Object.entries(value.object).map(
-      ([k, v]) => `${/^[A-Za-z_$][\w$]*$/.test(k) ? k : emitString(k)}: ${emitValue(v, ctx)}`
+      ([k, v]) => `${emitKey(k)}: ${emitValue(v, ctx)}`
     );
     return `{ ${entries.join(", ")} }`;
   }
@@ -232,7 +232,18 @@ export function emitStubBody(
   mutations: readonly StubMutation[],
   ctx: EmitContext
 ): string {
-  const pending = new Map(mutations.map((m) => [m.path, m.value]));
+  const pending = new Map<string, IrValue>();
+  for (const m of mutations) {
+    // A Map built straight from the list keeps the last silently, and because `pending` still
+    // empties, the matches-nothing guard below cannot fire either - so the stub serves a body
+    // the IR does not describe, with no diagnostic anywhere.
+    if (pending.has(m.path)) {
+      throw new CompileError(
+        `two mutations write '${m.path}'. One of them would be discarded silently; say once what the field should hold.`
+      );
+    }
+    pending.set(m.path, m.value);
+  }
 
   const walk = (node: unknown, at: string): string => {
     if (pending.has(at)) {
@@ -274,30 +285,66 @@ export function emitStubBody(
  * `pathname` or a `query` emits the object form, which is the only one that can say "this path,
  * and this query parameter exactly" - the shape B1's `$filter=` lookup needs.
  */
-export function emitRouteMatcher(route: RouteMatcher): string[] {
+export function emitRouteMatcher(route: RouteMatcher, ctx: EmitContext): string[] {
+  // `emitInterpolated`, not `emitString`. A route is a URL the model writes, so it carries
+  // `${groupId}` exactly as a visit path does - and this is the one place that used the plain
+  // string emitter, which put two literal characters into a route that then matched nothing.
+  // An intercept that never fires reports nothing, so the page loads against the real tenant
+  // and the spec fails somewhere else entirely. It is the defect `emitInterpolated` was written
+  // for, reappearing in the only place that did not call it.
+  const str = (v: string): string => emitInterpolated(v, ctx.runtime);
+
   if (route.pathname === undefined && route.query === undefined) {
     if (route.url === undefined) {
       throw new CompileError("a route matcher needs a 'url', or a 'pathname'");
     }
-    const url = emitString(route.url);
+    const url = str(route.url);
     return route.method ? [emitString(route.method), url] : [url];
   }
 
   const fields: string[] = [];
   if (route.method) fields.push(`method: ${emitString(route.method)}`);
-  if (route.pathname !== undefined) fields.push(`pathname: ${emitString(route.pathname)}`);
-  if (route.url !== undefined) fields.push(`url: ${emitString(route.url)}`);
+  if (route.pathname !== undefined) fields.push(`pathname: ${str(route.pathname)}`);
+  if (route.url !== undefined) fields.push(`url: ${str(route.url)}`);
   if (route.query) {
-    const pairs = Object.entries(route.query).map(
-      ([k, v]) => `${emitKey(k)}: ${emitString(v)}`
-    );
+    const pairs = Object.entries(route.query).map(([k, v]) => `${emitKey(k)}: ${str(v)}`);
     fields.push(`query: { ${pairs.join(", ")} }`);
   }
   return [`{ ${fields.join(", ")} }`];
 }
 
+/**
+ * The keys Cypress uses to decide whether a route's third argument is the body or is response
+ * metadata. If a body shares even one of them, Cypress reads the whole object as a
+ * StaticResponse - so an observed managed object carrying a tenant-defined `headers` or `log`
+ * fragment would be served with an empty body, and for `statusCode` or `headers` with whatever
+ * the fragment happened to hold. The route fires, returns nothing useful, and the spec fails a
+ * long way from the stub.
+ *
+ * Wrapping only when it is needed, rather than always: the corpus writes the bare form and axis
+ * D grades house style, so the wrap goes exactly where the bare form would be wrong.
+ */
+const STATIC_RESPONSE_KEYS = [
+  "body",
+  "fixture",
+  "statusCode",
+  "headers",
+  "forceNetworkError",
+  "throttleKbps",
+  "delay",
+  "delayMs",
+  "log",
+];
+
+function needsBodyWrapper(observed: unknown): boolean {
+  if (observed === null || typeof observed !== "object" || Array.isArray(observed)) return false;
+  return Object.keys(observed as Record<string, unknown>).some((k) =>
+    STATIC_RESPONSE_KEYS.includes(k)
+  );
+}
+
 export function emitStub(body: StubBody, ctx: EmitContext, stepId: string): string {
-  const exchange = ctx.facts?.requests.find((r) => r.id === body.fromRequest);
+  const exchange = ctx.facts ? findRequest(ctx.facts, body.fromRequest) : undefined;
   if (!exchange) {
     throw new CompileError(
       `step '${stepId}': stub derives from '${body.fromRequest}', which no probe observed. A stub body is never invented; it is an observed response with recorded changes.`
@@ -308,16 +355,17 @@ export function emitStub(body: StubBody, ctx: EmitContext, stepId: string): stri
       `step '${stepId}': exchange '${body.fromRequest}' was recorded without a body${exchange.bodyDropped ? " - it was over the size cap and dropped whole rather than clipped" : ""}, so there is nothing here to derive from.`
     );
   }
+  const served = emitStubBody(exchange.body, body.mutations ?? [], ctx);
   const args = [
-    ...emitRouteMatcher(body.route),
-    emitStubBody(exchange.body, body.mutations ?? [], ctx),
+    ...emitRouteMatcher(body.route, ctx),
+    needsBodyWrapper(exchange.body) ? `{ body: ${served} }` : served,
   ];
   const alias = body.alias ? `.as(${emitString(body.alias)})` : "";
   return `cy.intercept(${args.join(", ")})${alias};`;
 }
 
-export function emitSync(body: SyncBody): string {
-  return `cy.intercept(${emitRouteMatcher(body.route).join(", ")}).as(${emitString(body.alias)});`;
+export function emitSync(body: SyncBody, ctx: EmitContext): string {
+  return `cy.intercept(${emitRouteMatcher(body.route, ctx).join(", ")}).as(${emitString(body.alias)});`;
 }
 
 /** One alias is a string and several are a list, which is how the corpus writes both. */

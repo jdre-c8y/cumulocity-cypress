@@ -474,3 +474,59 @@ describe("showing the model what it may derive a stub from", () => {
     expect(text).toMatch(/page\.network#1.*NO BODY/);
   });
 });
+
+describe("truncation that says so", () => {
+  it("carries the count of exchanges the browser dropped", () => {
+    // `bodyDropped` exists precisely so a dropped body is legible. The exchange cap had no
+    // equivalent, so the one exchange a stub needs could be absent with no way to tell
+    // truncation from "the application never made that call" - and the next turn's
+    // `response-absent` would send the model to re-probe, which truncates identically.
+    withTempDir((dir) => {
+      fs.writeFileSync(
+        path.join(dir, "0.json"),
+        JSON.stringify({
+          kind: "network",
+          label: "boot",
+          observedAt: "2026-09-09T09:00:00.000Z",
+          droppedExchanges: 37,
+          requests: [
+            { method: "GET", url: "https://t.example.c8y.io/a", status: 200, body: { a: 1 } },
+          ],
+        })
+      );
+      const facts = readFacts(dir, { runId: "r", tenantUrl: "https://t.example.c8y.io" });
+
+      expect(facts.exchangesDropped).toBe(37);
+      expect(summariseFacts(facts)).toMatch(/37 further exchange/);
+    });
+  });
+
+  it("caps the exchange listing the way the row listing is capped", () => {
+    // This block is appended to every prompt of every later iteration, on a metered API, and
+    // each line carries a body shape three levels deep plus a decoded query string. The rows
+    // above it are bounded at 120 for exactly this reason.
+    const many = {
+      version: 1 as const,
+      runId: "r",
+      tenantUrl: "https://t.example.c8y.io",
+      appVersion: null,
+      surfaces: [],
+      provisionalMatches: [],
+      complete: true,
+      requests: Array.from({ length: 90 }, (_, i) => ({
+        id: `boot#${i}`,
+        method: "GET",
+        url: `https://t.example.c8y.io/thing/${i}`,
+        pathname: `/thing/${i}`,
+        status: 200,
+        body: { id: String(i) },
+      })),
+    };
+
+    const text = summariseFacts(many);
+
+    expect(text).toContain("boot#0");
+    expect(text).not.toContain("boot#89");
+    expect(text).toMatch(/further exchange/);
+  });
+});

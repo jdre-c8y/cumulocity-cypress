@@ -128,7 +128,11 @@ export interface RequestBody {
  */
 export interface RouteMatcher {
   method?: "GET" | "POST" | "PUT" | "DELETE";
-  /** A URL glob. Mutually exclusive with `pathname`. */
+  /**
+   * A URL glob. Cypress allows this alongside `pathname` and ANDs them, so the two are not
+   * exclusive - an earlier version of this comment said they were, which is wrong about what
+   * the emitted code does.
+   */
   url?: string;
   /** An exact path, for when the query must be matched too. */
   pathname?: string;
