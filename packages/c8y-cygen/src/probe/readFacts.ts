@@ -15,6 +15,7 @@ import type {
   CandidateRow,
   CollectedSurface,
   FactsDocument,
+  ObservedRequest,
   PageComponent,
   ProvisionalMatch,
 } from "../facts/types.js";
@@ -26,8 +27,18 @@ export class FactsError extends Error {
   }
 }
 
+/** One network exchange as the browser half writes it, before the pathname and query are split. */
+export interface RawExchange {
+  method: string;
+  url: string;
+  status: number;
+  createdId?: string;
+  body?: unknown;
+  bodyDropped?: boolean;
+}
+
 export interface ProbePayload {
-  kind: "collect" | "provisional";
+  kind: "collect" | "provisional" | "network";
   label: string;
   stepId?: string;
   within?: string | null;
@@ -37,7 +48,33 @@ export interface ProbePayload {
   /** True when `within` matched nothing, so the payload carries an inventory instead of rows. */
   scopeMissed?: boolean;
   pageComponents?: PageComponent[];
-  nodes: RawNode[];
+  /** Present on a `network` payload, and on no other. */
+  requests?: RawExchange[];
+  /** Present on a `collect` or `provisional` payload, and on no other. */
+  nodes?: RawNode[];
+}
+
+/**
+ * Splits an observed URL into the two halves an intercept is keyed on.
+ *
+ * Done here rather than in the browser for the reason the rest of the payload is: every
+ * reduction that can happen in node happens in node. It also has to be tolerant - a probe
+ * watches whatever the app asks for, including URLs this parser would rather not see - so a
+ * URL it cannot parse yields the whole string as the pathname and no query at all, which is
+ * still a usable record of the exchange.
+ */
+export function splitUrl(url: string): { pathname: string; query?: Record<string, string> } {
+  let parsed: URL;
+  try {
+    parsed = new URL(url, "http://probe.invalid");
+  } catch {
+    return { pathname: url };
+  }
+  const query: Record<string, string> = {};
+  for (const [k, v] of parsed.searchParams) query[k] = v;
+  return Object.keys(query).length > 0
+    ? { pathname: parsed.pathname, query }
+    : { pathname: parsed.pathname };
 }
 
 let validator: ValidateFunction | undefined;
@@ -83,6 +120,7 @@ export interface ReadFactsOptions {
 export function readFacts(dir: string, options: ReadFactsOptions): FactsDocument {
   const surfaces: CollectedSurface[] = [];
   const provisionalMatches: ProvisionalMatch[] = [];
+  const requests: ObservedRequest[] = [];
   // Row ids are `<label>#<index>` and the browser restarts the index at 0 on every collect, so
   // two collects sharing a label produce two surfaces with fully overlapping ids. The re-probe
   // rung makes that the normal case: it re-collects the scope that failed, under the label the
@@ -119,7 +157,28 @@ export function readFacts(dir: string, options: ReadFactsOptions): FactsDocument
   for (const full of files) {
     const payload = parsePayload(fs.readFileSync(full, "utf8"), full);
     const label = uniqueLabel(payload.label);
-    const rows = rowsFromRawNodes(label, payload.nodes);
+
+    if (payload.kind === "network") {
+      // Ids are `<label>#<index>` for the same reason rows are: a stub names one of these from
+      // a later, stateless model turn, so identity cannot be a position in an array.
+      (payload.requests ?? []).forEach((exchange, i) => {
+        const { pathname, query } = splitUrl(exchange.url);
+        requests.push({
+          id: `${label}#${i}`,
+          method: exchange.method,
+          url: exchange.url,
+          pathname,
+          ...(query ? { query } : {}),
+          status: exchange.status,
+          ...(exchange.createdId !== undefined ? { createdId: exchange.createdId } : {}),
+          ...(exchange.body !== undefined ? { body: exchange.body } : {}),
+          ...(exchange.bodyDropped ? { bodyDropped: true } : {}),
+        });
+      });
+      continue;
+    }
+
+    const rows = rowsFromRawNodes(label, payload.nodes ?? []);
 
     if (payload.kind === "collect") {
       surfaces.push({
@@ -158,7 +217,7 @@ export function readFacts(dir: string, options: ReadFactsOptions): FactsDocument
     appVersion: options.appVersion ?? null,
     surfaces,
     provisionalMatches,
-    requests: [],
+    requests,
     complete: options.complete ?? false,
   };
 }
@@ -183,6 +242,34 @@ export function rankRows(rows: CandidateRow[]): CandidateRow[] {
     return n;
   };
   return [...rows].sort((a, b) => score(b) - score(a));
+}
+
+/**
+ * The shape of a body, not the body.
+ *
+ * A stub names an exchange and the compiler reads the body out of the facts document, so the
+ * model never needs to see one - and observed Cumulocity responses are large enough that
+ * dumping them would be the biggest text this tool ever sends. What it does need is enough
+ * shape to write a mutation path against - and a path like `managedObjects.0.name` names a
+ * key one level below an array, so the depth has to clear an envelope, a list, and an element.
+ */
+const MAX_SHAPE_DEPTH = 3;
+
+function describeBody(body: unknown, depth = 0): string {
+  if (Array.isArray(body)) {
+    return body.length === 0
+      ? "[]"
+      : `[${body.length} x ${depth < MAX_SHAPE_DEPTH ? describeBody(body[0], depth + 1) : "..."}]`;
+  }
+  if (body !== null && typeof body === "object") {
+    const keys = Object.keys(body as Record<string, unknown>);
+    if (depth >= MAX_SHAPE_DEPTH) return "{...}";
+    return `{${keys
+      .slice(0, 12)
+      .map((k) => `${k}: ${describeBody((body as Record<string, unknown>)[k], depth + 1)}`)
+      .join(", ")}${keys.length > 12 ? ", ..." : ""}}`;
+  }
+  return typeof body === "string" ? "str" : String(body);
 }
 
 /**
@@ -239,6 +326,25 @@ export function summariseFacts(facts: FactsDocument, maxRowsPerSurface = 120): s
       `provisional ${match.stepId}: matched ${match.matchCount} element(s)` +
         (match.row ? `, row ${match.row.id}` : ", no row recorded")
     );
+  }
+  // Without this the model cannot write a stub at all. `fromRequest` has to name something, and
+  // this is the only place it ever learns what was observed - which is the point: it names an
+  // exchange and the compiler reads the body, so it never sees a body to retype.
+  if (facts.requests.length > 0) {
+    lines.push("", "# network exchanges a stub may derive from");
+    for (const r of facts.requests) {
+      const query = r.query
+        ? "  ?" +
+          Object.entries(r.query)
+            .map(([k, v]) => `${k}=${v}`)
+            .join("&")
+        : "";
+      const size =
+        r.body === undefined
+          ? "  NO BODY, so no stub can derive from it"
+          : `  ${describeBody(r.body)}`;
+      lines.push(`${r.id}  ${r.method} ${r.pathname} -> ${r.status}${query}${size}`);
+    }
   }
   return lines.join("\n");
 }

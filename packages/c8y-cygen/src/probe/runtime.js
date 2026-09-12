@@ -143,6 +143,119 @@ function writeFacts(payload) {
   return cy.writeFile(factsDir() + '/' + name + '-' + payload.kind + '.json', payload);
 }
 
+/**
+ * The network watcher.
+ *
+ * Ticket 02's rule 3 says a fabricated response body must be derived by recorded mutation from
+ * a response the probe actually observed. Somewhere has to do the observing, and this is it.
+ *
+ * Two properties are load-bearing:
+ *
+ *   - `middleware: true` makes this a pass-through observer rather than a stub. It runs before
+ *     any other intercept and lets the request continue untouched, so the probe never changes
+ *     what the application sees. A probe that alters the traffic it is measuring is worse than
+ *     no probe: every fact it collects is then contingent on itself.
+ *   - It starts in a root-level `beforeEach`, which registers when this file is imported and so
+ *     runs before the spec's own hooks. The page-load traffic is the traffic that matters -
+ *     Cockpit resolves the dashboard once, on boot - and an intercept registered after the
+ *     visit catches none of it.
+ *
+ * Only JSON bodies are kept. A stub can derive from nothing else, and a page's scripts, fonts
+ * and images would swamp the payload with exchanges no IR can ever name.
+ */
+var MAX_BODY_CHARS = 20000;
+var MAX_EXCHANGES = 200;
+
+var observed = [];
+
+function recordExchange(req, res) {
+  if (observed.length >= MAX_EXCHANGES) return;
+
+  var body = res.body;
+  // A string that happens to be JSON is still JSON. Cypress parses by content-type and the
+  // platform does not always send one.
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      return;
+    }
+  }
+  if (body === null || typeof body !== 'object') return;
+
+  var entry = { method: req.method, url: req.url, status: res.statusCode };
+
+  var text;
+  try {
+    text = JSON.stringify(body);
+  } catch {
+    // A body that will not serialise cannot reach node, so it cannot anchor a stub either.
+    return;
+  }
+  if (text.length > MAX_BODY_CHARS) {
+    // Dropped whole, never clipped. A truncated JSON document that still parses would anchor a
+    // stub to a fiction that looks observed, which is the one outcome worth spending a byte to
+    // prevent.
+    entry.bodyDropped = true;
+  } else {
+    entry.body = body;
+  }
+
+  // The dynamic half of the run manifest: a 201 carrying an id created real state.
+  if (res.statusCode === 201 && body.id !== undefined) {
+    entry.createdId = String(body.id);
+  }
+
+  observed.push(entry);
+}
+
+/**
+ * Whether this request is worth buffering a response for.
+ *
+ * Attaching a response listener makes Cypress hold the whole body so the handler can read it,
+ * and a `**` middleware route sees every asset the application loads - bundles, fonts, images.
+ * Buffering those costs wall clock on a run whose wall clock is already a measured hazard, and
+ * none of them could ever anchor a stub. Filtered on the request, before anything is held.
+ */
+function watchable(req) {
+  if (req.resourceType !== 'xhr' && req.resourceType !== 'fetch') return false;
+  return !/\.(js|css|svg|png|jpe?g|gif|woff2?|ttf|ico|map)(\?|$)/i.test(req.url);
+}
+
+beforeEach(function () {
+  observed = [];
+  cy.intercept({ url: '**', middleware: true }, function (req) {
+    if (!watchable(req)) return;
+    req.on('response', function (res) {
+      recordExchange(req, res);
+    });
+  });
+});
+
+/**
+ * Flushes what the watcher has seen since the last flush.
+ *
+ * Since the last flush, not since the start: a probe walks a flow, and which exchanges belong
+ * to which state of that flow is exactly the thing a later `stub` needs to know. Draining keeps
+ * each payload's label meaningful.
+ *
+ * It rides on the collect command rather than being an IR verb of its own. A collect point is
+ * already the model saying "look here, in this state", and that is the same instant the network
+ * question is asked - so the facts arrive together and the IR gains no fourth thing to learn.
+ * The `.network` suffix keeps the two payloads from colliding on one label, which would send
+ * the second through the reader's duplicate-label rename and leave the ids reading `page~2#0`.
+ */
+function writeNetwork(label) {
+  var batch = observed;
+  observed = [];
+  return writeFacts({
+    kind: 'network',
+    label: label + '.network',
+    observedAt: new Date().toISOString(),
+    requests: batch
+  });
+}
+
 /** Caps the inventory below. A page with more distinct components than this has other problems. */
 var MAX_COMPONENTS = 120;
 
@@ -196,6 +309,7 @@ Cypress.Commands.add('c8yCygenCollect', function (options) {
     }
 
     if (!$scope || $scope.length === 0) {
+      writeNetwork(label);
       return writeFacts({
         kind: 'collect',
         label: label,
@@ -217,6 +331,7 @@ Cypress.Commands.add('c8yCygenCollect', function (options) {
         nodes.push(walked[j]);
       }
     });
+    writeNetwork(label);
     return writeFacts({
       kind: 'collect',
       label: label,

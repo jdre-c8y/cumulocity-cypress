@@ -12,8 +12,11 @@ import {
   emitCallRepoHelper,
   emitRequest,
   emitString,
+  emitStub,
+  emitSync,
   emitValue,
   emitVisit,
+  emitWaitFor,
   type EmitContext,
 } from "./emit.js";
 import type { EmittedStatement } from "./sourceMap.js";
@@ -31,6 +34,7 @@ import {
   type SettleBody,
 } from "../ir/types.js";
 import type { EffectiveConventions } from "../conventions/types.js";
+import type { FactsDocument } from "../facts/types.js";
 
 export type CompileMode = "spec" | "probe";
 
@@ -47,6 +51,11 @@ export interface CompileInput {
   ir: IrDocument;
   mode: CompileMode;
   conventions: EffectiveConventions;
+  /**
+   * What a probe observed. Needed only by `stub`, which reads its response body from here
+   * rather than from the IR - the model names an exchange, it never writes a body.
+   */
+  facts?: FactsDocument;
   /**
    * Grep tags for the emitted `it`, as the contract's author declared them. Spec mode only.
    * The tool never derives these - see ScenarioContract.tags for the measurement that settled it.
@@ -95,11 +104,23 @@ function emitAssert(body: AssertBody, ctx: EmitContext, mode: CompileMode, stepI
   const base = targetExpr(body.target, mode, stepId);
   const operand = emitValue(body.operand, ctx);
   const cardinality = cardinalityAssertion(body.cardinality ?? { exactly: 1 }) ?? "";
+  // Applied to the assertion and never to the cardinality. Negating the cardinality would turn
+  // "there are three of these, and none says X" into "there are not three of these" - a
+  // different claim, and one that passes for the wrong reason.
+  const chain = (assertion: string): string => (body.negate ? `not.${assertion}` : assertion);
 
   if (body.compare === "withinMinutesOfNow") {
     if (body.extract !== "text") {
       throw new CompileError(
         `step '${stepId}': withinMinutesOfNow reads text, not ${body.extract}`
+      );
+    }
+    if (body.negate) {
+      // "the time shown is not within 3 minutes of now" is not an outcome anyone means, and a
+      // window assertion inverted is satisfied by every value outside it, including a parse
+      // failure. Refused rather than emitted.
+      throw new CompileError(
+        `step '${stepId}': withinMinutesOfNow cannot be negated - inverted, it is satisfied by any time outside the window, a failed parse included.`
       );
     }
     return [
@@ -113,28 +134,28 @@ function emitAssert(body: AssertBody, ctx: EmitContext, mode: CompileMode, stepI
 
   switch (body.extract) {
     case "text":
-      if (body.compare === "includes") return `${base}${cardinality}.should('contain.text', ${operand});`;
-      if (body.compare === "equals") return `${base}${cardinality}.should('have.text', ${operand});`;
-      return `${base}${cardinality}.invoke('text').should('match', new RegExp(${operand}));`;
+      if (body.compare === "includes") return `${base}${cardinality}.should(${emitString(chain("contain.text"))}, ${operand});`;
+      if (body.compare === "equals") return `${base}${cardinality}.should(${emitString(chain("have.text"))}, ${operand});`;
+      return `${base}${cardinality}.invoke('text').should(${emitString(chain("match"))}, new RegExp(${operand}));`;
     case "attribute": {
       if (!body.attribute) {
         throw new CompileError(`step '${stepId}': extract 'attribute' needs an attribute name`);
       }
       const read = `${base}${cardinality}.invoke('attr', ${emitString(body.attribute)})`;
-      if (body.compare === "equals") return `${read}.should('equal', ${operand});`;
-      if (body.compare === "includes") return `${read}.should('include', ${operand});`;
-      return `${read}.should('match', new RegExp(${operand}));`;
+      if (body.compare === "equals") return `${read}.should(${emitString(chain("equal"))}, ${operand});`;
+      if (body.compare === "includes") return `${read}.should(${emitString(chain("include"))}, ${operand});`;
+      return `${read}.should(${emitString(chain("match"))}, new RegExp(${operand}));`;
     }
     case "value":
-      if (body.compare === "equals") return `${base}${cardinality}.should('have.value', ${operand});`;
-      return `${base}${cardinality}.invoke('val').should('include', ${operand});`;
+      if (body.compare === "equals") return `${base}${cardinality}.should(${emitString(chain("have.value"))}, ${operand});`;
+      return `${base}${cardinality}.invoke('val').should(${emitString(chain("include"))}, ${operand});`;
     case "count":
       if (body.compare !== "equals") {
         throw new CompileError(
           `step '${stepId}': a count is compared with 'equals'; use a declared cardinality for 'at least n'`
         );
       }
-      return `${base}.should('have.length', ${operand});`;
+      return `${base}.should(${emitString(chain("have.length"))}, ${operand});`;
   }
 }
 
@@ -157,6 +178,16 @@ function emitStepStatement(
       return emitCallRepoHelper(step.callRepoHelper!, ctx);
     case "request":
       return emitRequest(step.request!, ctx);
+    case "stub":
+      // A probe that serves a stubbed body records the stub, and every fact downstream is then
+      // contingent on itself. The probe's whole job is to see what the real application returns,
+      // so this is the one verb the probe back-end drops outright rather than merely ignoring.
+      if (mode === "probe") return null;
+      return emitStub(step.stub!, ctx, step.id);
+    case "sync":
+      return emitSync(step.sync!);
+    case "waitFor":
+      return emitWaitFor(step.waitFor!, step.id);
     case "click":
       return `${targetExpr(step.click!.target, mode, step.id)}.click();`;
     case "settle":
@@ -241,7 +272,11 @@ function removalsFor(ir: IrDocument, conventions: EffectiveConventions): Removal
 export function compile(input: CompileInput): CompileResult {
   const { ir, mode, conventions } = input;
   const runtime = new Set<string>(Object.keys(ir.vars ?? {}));
-  const ctx: EmitContext = { conventions, runtime };
+  const ctx: EmitContext = {
+    conventions,
+    runtime,
+    ...(input.facts ? { facts: input.facts } : {}),
+  };
 
   const setupStatements: EmittedStatement[] = [];
   const statements: EmittedStatement[] = [];
@@ -265,7 +300,11 @@ export function compile(input: CompileInput): CompileResult {
   // binds anything. Its statements lead the source map so a failure there names its setup entry.
   const setup: string[] = [];
   for (const step of ir.setup ?? []) {
-    const text = emitStepStatement(step, { conventions, runtime: new Set() }, mode);
+    const text = emitStepStatement(
+      step,
+      { conventions, runtime: new Set(), ...(input.facts ? { facts: input.facts } : {}) },
+      mode
+    );
     if (!text) continue;
     setupStatements.push({
       stepPath: stepPath(ir, step),
@@ -310,7 +349,14 @@ export function compile(input: CompileInput): CompileResult {
     }
     const text = emitStepStatement(step, ctx, mode);
     if (text === null) {
-      body.push(indentBlock(`// probe: value-bearing assertion dropped (${step.id})`, depth));
+      body.push(
+        indentBlock(
+          step.stub
+            ? `// probe: stub dropped (${step.id}) - a probe observes the real response`
+            : `// probe: value-bearing assertion dropped (${step.id})`,
+          depth
+        )
+      );
       continue;
     }
 

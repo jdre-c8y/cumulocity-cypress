@@ -242,13 +242,26 @@ export function assemblePrompt(input: PromptInput): AssembledPrompt {
       ? `# Facts a probe observed\n\n\`\`\`\n${summariseFacts(input.facts)}\n\`\`\``
       : "# Facts a probe observed\n\nNone yet. No probe has run, so no selector can be resolved and the spec IR cannot lint.",
   });
-  if (input.lint && (input.lint.errors.length > 0 || input.lint.gaps.length > 0)) {
+  const lintHasSomethingToSay =
+    input.lint &&
+    (input.lint.errors.length > 0 ||
+      input.lint.gaps.length > 0 ||
+      input.lint.stubSatisfied.length > 0);
+  if (input.lint && lintHasSomethingToSay) {
     tail.push({
       text: [
         "# What the linter says about the current IR",
         "",
         ...input.lint.errors.map((e) => `ERROR ${e.where}: ${e.message}`),
         ...input.lint.gaps.map((g) => `STILL MISSING ${g.need} at ${g.at}: ${g.hint}`),
+        // Not an error and not a gap. It is a nudge with a reason, shown because the model is
+        // the only party that can still choose a different subject to assert against.
+        ...input.lint.stubSatisfied.map(
+          (x) =>
+            `NOTE outcome ${x.outcome} asserts '${x.via}', which a stub in this same ` +
+            `test wrote into a fabricated response. Legal. Where you can satisfy this outcome ` +
+            `by asserting something the application derived instead, prefer that.`
+        ),
       ].join("\n"),
     });
   }

@@ -453,7 +453,16 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
         break;
       }
 
-      const compiled = compile({ ir, mode, conventions, itTags: contract.tags });
+      // `facts` is not optional in practice once an IR carries a stub: the compiler reads the
+      // stubbed response body out of the facts document, because the model names an observed
+      // exchange and never writes a body. Passing it unconditionally keeps that one code path.
+      const compiled = compile({
+        ir,
+        mode,
+        conventions,
+        itTags: contract.tags,
+        ...(facts ? { facts } : {}),
+      });
 
       // `previousSpecFailed` is NOT cleared here. It used to be, for every compile including a
       // probe one - so a rung-2 re-probe switched the frozen/free split off for the turn after
@@ -665,6 +674,19 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
       notes.push(
         `${strays.strays.length} file(s) outside .cygen/ changed in the target repo while the ` +
           `run ran, and none of them is the spec: ${strays.strays.map((s) => s.path).join(", ")}`
+      );
+    }
+
+    // Reported because it is a judgement the tool deliberately does not make. The linter counts
+    // outcomes asserting a value a stub in the same test wrote and refuses none of them, so the
+    // count has to reach the person grading flow equivalence or it may as well not exist.
+    if (lint && lint.stubSatisfied.length > 0) {
+      const which = [...new Set(lint.stubSatisfied.map((x) => x.outcome))].sort((a, b) => a - b);
+      notes.push(
+        `outcome(s) ${which.join(", ")} assert a value a stub in this same test wrote ` +
+          `(${lint.stubSatisfied.map((x) => `${x.outcome} via ${x.via}`).join("; ")}). ` +
+          `Legal under a mocked style and counted rather than refused - read the flow and decide ` +
+          `whether each is the scenario's real subject or a value handed straight back.`
       );
     }
 

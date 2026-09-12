@@ -16,12 +16,13 @@
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import { readPackageAsset } from "../support/assets.js";
 import { emitPath, resolveSelector } from "../ladder/ladder.js";
-import { findRow, findSurfaceOf, type FactsDocument } from "../facts/types.js";
+import { findRequest, findRow, findSurfaceOf, type FactsDocument } from "../facts/types.js";
 import type { EffectiveConventions } from "../conventions/types.js";
 import type { ScenarioContract } from "../contract/scenarioContract.js";
 import {
   ASSERTING_VERBS,
   DOM_VERBS,
+  INTERCEPT_VERBS,
   PROBE_ONLY_VERBS,
   VERBS,
   allSteps,
@@ -39,10 +40,18 @@ import {
 
 export type LintMode = "probe" | "spec";
 
-/** The seven named states in which the tool stops and asks. */
+/**
+ * The eight named states in which the tool stops and asks.
+ *
+ * `response-absent` is the newest, and it is its own condition rather than a flavour of
+ * `selector-absent` because the remedy is different in kind: a missing selector means probe the
+ * DOM again, a missing response means watch the network. Collapsing them would send the model
+ * to collect more rows in answer to a question rows cannot answer.
+ */
 export type TripCondition =
   | "vocabulary-gap"
   | "selector-absent"
+  | "response-absent"
   | "outcome-unmappable"
   | "budget-exhausted"
   | "ambiguous-provisional"
@@ -59,8 +68,33 @@ export interface LintProblem {
 /** What the next iteration still has to resolve. Probe mode makes the gap legible. */
 export interface LintGap {
   at: string;
-  need: "selector" | "assertion";
+  need: "selector" | "assertion" | "response";
   hint: string;
+}
+
+/**
+ * An outcome satisfied by a value this same test wrote into a fabricated response.
+ *
+ * Ticket 02 states the invariant as a ban: *no Expected Outcome may be satisfied by an assertion
+ * whose value traces to a `stub` in the same `it()`*. It is recorded here rather than refused,
+ * and the reason is worth stating plainly, because weakening a guardrail deserves an argument.
+ *
+ * The move the invariant exists to stop is stub-then-assert: the model cannot find a value, so
+ * it serves the value and asserts it, and the spec passes against a fiction. But a mocked
+ * scenario whose subject is what the application *does* with a precondition looks identical to
+ * a linter - B1 stubs a widget's configured device and then asserts the device survives two
+ * config save cycles, which is the whole point of the test and not gaming at all. Telling those
+ * apart needs a reading of the scenario, which is axis C and D territory and graded by a human.
+ *
+ * So the mechanical half stays mechanical and stays a hard refusal: rule 3, that no stub body is
+ * invented. The judgement half is counted and handed to the grader, who is going to read the
+ * flow anyway. A count that is always visible is worth more than a ban that would make three of
+ * the five benchmark oracles unbuildable.
+ */
+export interface StubSatisfied {
+  outcome: number;
+  /** The bound name the stub wrote and the assertion then read. */
+  via: string;
 }
 
 export interface LintResult {
@@ -69,6 +103,8 @@ export interface LintResult {
   gaps: LintGap[];
   /** Contract outcome ids this IR already satisfies with a real assertion. */
   coveredOutcomes: number[];
+  /** Outcomes asserting a value a stub in the same test wrote. Reported, never refused. */
+  stubSatisfied: StubSatisfied[];
 }
 
 export interface LintInput {
@@ -130,6 +166,7 @@ function stepValues(step: IrStep): IrValue[] {
   const out: IrValue[] = [];
   const collect = (v: IrValue | undefined) => walkValues(v, (x) => out.push(x));
   for (const arg of step.callRepoHelper?.args ?? []) collect(arg);
+  for (const mutation of step.stub?.mutations ?? []) collect(mutation.value);
   collect(step.request?.body);
   collect(step.assert?.operand);
   return out;
@@ -205,7 +242,13 @@ export function lintIr(input: LintInput): LintResult {
 
   const validate = getValidator();
   if (!validate(ir)) {
-    return { ok: false, errors: schemaErrors(validate.errors), gaps, coveredOutcomes: [] };
+    return {
+      ok: false,
+      errors: schemaErrors(validate.errors),
+      gaps,
+      coveredOutcomes: [],
+      stubSatisfied: [],
+    };
   }
 
   const steps = allSteps(ir);
@@ -368,6 +411,75 @@ export function lintIr(input: LintInput): LintResult {
       });
     }
 
+    // --- a route that can be emitted at all --------------------------------------------
+    // Checked here rather than left to the compiler. The compiler throws, and a throw during a
+    // spec compile ends the run; a lint error costs a turn and says what to fix. Every rule that
+    // matters lives in this file for exactly this reason.
+    const route = step.stub?.route ?? step.sync?.route;
+    if (route && route.url === undefined && route.pathname === undefined) {
+      add(
+        where,
+        `this route matches on nothing: give it a 'url' glob, or a 'pathname' when a 'query' has to match too. A matcher of method alone would intercept every request the application makes.`
+      );
+    }
+
+    // --- the stub is anchored to something a probe actually saw ----------------------
+    if (step.stub) {
+      const body = step.stub;
+      if (mode === "probe") {
+        add(
+          where,
+          `'stub' must not appear in a probe IR. A probe exists to see what the real application returns; one that serves a fabricated body records its own fiction, and every fact derived from that run is then contingent on itself. Add the stub on the turn that writes the spec.`
+        );
+      }
+      if (ir.meta.style === "integration") {
+        add(
+          where,
+          `this IR declares 'integration' style and carries a stub. Integration style means the state is real; if the scenario's Style line says mocked, say mocked in meta.style.`
+        );
+      }
+      if (!facts) {
+        gaps.push({
+          at: step.id,
+          need: "response",
+          hint: `stub derives from '${body.fromRequest}', and no probe has watched the network yet`,
+        });
+      } else {
+        const observed = findRequest(facts, body.fromRequest);
+        if (!observed) {
+          add(
+            where,
+            `stub derives from exchange '${body.fromRequest}', which no probe observed. A stub body is never invented; it is an observed response with recorded changes. Probe the flow and name an exchange the facts list.`,
+            "response-absent"
+          );
+        } else if (observed.body === undefined) {
+          add(
+            where,
+            `exchange '${body.fromRequest}' was recorded without a body${
+              observed.bodyDropped
+                ? " - it was over the size cap and dropped whole rather than clipped, because half a body is not a body a stub may derive from"
+                : ""
+            }. There is nothing here to derive from.`,
+            "response-absent"
+          );
+        }
+      }
+      // The other half of rule 3. An observed body with one field quietly replaced by an
+      // invented literal is the fabrication the rule exists to stop, and it is invisible in the
+      // emitted spec because every other field is genuine.
+      for (const mutation of body.mutations ?? []) {
+        walkValues(mutation.value, (v) => {
+          if (v === null || typeof v === "object") return;
+          if (!isAnchoredLiteral(v, contract)) {
+            add(
+              where,
+              `stub mutation '${mutation.path}' writes '${String(v)}', which appears nowhere in the scenario contract. A fabricated field must trace to the contract, a capture or a value builder - that is what makes it a recorded change rather than an invention.`
+            );
+          }
+        });
+      }
+    }
+
     // --- the target ------------------------------------------------------------------
     const target = targetOf(step);
     if (!target) continue;
@@ -444,6 +556,56 @@ export function lintIr(input: LintInput): LintResult {
         where,
         `selector ${JSON.stringify(target.resolved)} is not what the ladder derives from row '${target.fromRow}' (${JSON.stringify(emitPath(again))}). The model never authors a selector.`
       );
+    }
+  }
+
+  // --- an intercept that fires, rather than one that silently does not -----------------
+  // Cypress registers a route after the request has gone without complaint: nothing errors, the
+  // page simply loaded against the real tenant as though nothing were mocked. It is the most
+  // expensive failure in this verb family precisely because it is silent.
+  //
+  // The check is "is there anything left that could trigger a request", not "is it before the
+  // visit". The stricter reading is what this rule said first, and it is wrong twice over: a
+  // flow that visits a second page legitimately stubs that page's traffic between the two
+  // visits, and a stub for a lazily-loaded call legitimately sits after the click that loads it.
+  // Refusing those would spend a turn telling the model to break working code, which this
+  // linter's own selector rules already learned the hard way.
+  //
+  // What is left is provable: an intercept with no visit and no click after it can never fire.
+  // Setup is exempt by construction - it compiles to beforeEach, which runs before the body.
+  const triggersRequest = (step: IrStep): boolean =>
+    step.visit !== undefined || step.click !== undefined;
+  for (let i = 0; i < ir.steps.length; i++) {
+    const step = ir.steps[i] as IrStep;
+    const verb = verbsOf(step).find((v) => INTERCEPT_VERBS.includes(v));
+    if (!verb) continue;
+    if (ir.steps.slice(i + 1).some(triggersRequest)) continue;
+    add(
+      `steps.${step.id}`,
+      `'${verb}' is registered after the last step that could trigger a request, so the route can never fire and nothing will report that. An intercept goes above the visit or click whose traffic it matches, or into setup.`
+    );
+  }
+
+  // --- the alias vocabulary --------------------------------------------------------------
+  const boundAliases = new Set<string>();
+  for (const step of steps) {
+    const alias = step.sync?.alias ?? step.stub?.alias;
+    if (alias !== undefined) {
+      if (boundAliases.has(alias)) {
+        add(
+          `steps.${step.id}`,
+          `alias '@${alias}' is already claimed by an earlier route. Two routes under one alias make cy.wait ambiguous, and it waits for whichever Cypress resolves first.`
+        );
+      }
+      boundAliases.add(alias);
+    }
+    for (const wanted of step.waitFor?.aliases ?? []) {
+      if (!boundAliases.has(wanted)) {
+        add(
+          `steps.${step.id}`,
+          `waitFor names '@${wanted}', which no earlier 'sync' or 'stub' binds. An alias must be registered before the wait, and before the request it matches.`
+        );
+      }
     }
   }
 
@@ -536,6 +698,12 @@ export function lintIr(input: LintInput): LintResult {
   // --- outcomes, and the anti-gaming guardrail ----------------------------------------
   const byId = new Map(steps.map((s) => [s.id, s]));
   const fabricated = fabricatedNames(ir, conventions);
+  const stubbed = stubbedTokens(ir);
+  const stubSatisfied: StubSatisfied[] = [];
+  const noteStub = (outcome: number, via: string): void => {
+    if (stubSatisfied.some((x) => x.outcome === outcome && x.via === via)) return;
+    stubSatisfied.push({ outcome, via });
+  };
   const contractIds = new Set(contract.outcomes.map((o) => o.id));
   const covered = new Set<number>();
 
@@ -576,6 +744,11 @@ export function lintIr(input: LintInput): LintResult {
               `satisfied by an assertion whose operand traces to '${v.ref}', which a fabricating setup move produced in the same test`
             );
           }
+          // Counted, not refused. See StubSatisfied for why this one is a judgement.
+          for (const token of [...namesIn(v), ...(typeof v === "string" ? [v] : [])]) {
+            const via = stubbed.get(token);
+            if (via !== undefined) noteStub(outcome.id, via);
+          }
         });
       }
       covered.add(outcome.id);
@@ -599,7 +772,64 @@ export function lintIr(input: LintInput): LintResult {
     errors,
     gaps,
     coveredOutcomes: [...covered].sort((a, b) => a - b),
+    stubSatisfied,
   };
+}
+
+
+/** Every bound name a value reaches for, whether by `ref` or by `${...}` inside a string. */
+function namesIn(value: IrValue): string[] {
+  if (typeof value === "string") return refsInString(value);
+  if (value !== null && typeof value === "object" && "ref" in value) return [value.ref];
+  return [];
+}
+
+/**
+ * What this IR writes into a fabricated response body, as tokens an assertion could match.
+ *
+ * Precise on purpose in two directions.
+ *
+ * It is not "every name a stub step mentions" - it is every value spliced in by a *recorded
+ * mutation*. A stub that serves an observed body untouched fabricates nothing, and asserting
+ * against what it serves is asserting against what the tenant really returned.
+ *
+ * And it is not names alone. Tracing by name only would miss the plainest form of the move it
+ * exists to see: write `name: 'e2eWidgetGroup'` into the fake response, then assert
+ * `contain.text 'e2eWidgetGroup'` with no variable anywhere. So a mutation contributes both the
+ * names it reaches for and the literals those names resolve to, and an assertion is checked
+ * against both.
+ *
+ * Var resolution is one level deep. A name bound to another name is not followed, and a chain
+ * that long goes uncounted rather than guessed at.
+ */
+function stubbedTokens(ir: IrDocument): Map<string, string> {
+  // token -> how to describe it. A name is more informative than the literal behind it, so a
+  // token reachable both ways is described by its name.
+  const out = new Map<string, string>();
+  const vars = ir.vars ?? {};
+
+  // Strings only, and never bare numbers. A fabricated identity in these APIs is a string - a
+  // name, an id, a type - while the numbers in a response body are page sizes and counts, and
+  // those collide with a `count` assertion's operand by coincidence rather than by tracing.
+  // This is a measurement, so a false positive costs its credibility.
+  const register = (token: unknown, describedAs: string): void => {
+    if (typeof token !== "string" || token.length === 0) return;
+    if (!out.has(token)) out.set(token, describedAs);
+  };
+
+  for (const step of allSteps(ir)) {
+    for (const mutation of step.stub?.mutations ?? []) {
+      walkValues(mutation.value, (v) => {
+        for (const name of namesIn(v)) {
+          register(name, name);
+          const bound = vars[name];
+          if (typeof bound === "string" || typeof bound === "number") register(bound, name);
+        }
+        if (typeof v === "string") register(v, v);
+      });
+    }
+  }
+  return out;
 }
 
 /** Names bound by a step whose setup move fabricates rather than creating real state. */
@@ -626,6 +856,13 @@ export function formatLintResult(result: LintResult): string {
   }
   for (const g of result.gaps) {
     lines.push(`GAP    ${g.need.padEnd(9)} @ ${g.at}  ${g.hint}`);
+  }
+  for (const s of result.stubSatisfied) {
+    lines.push(
+      `NOTE   outcome ${s.outcome} asserts '${s.via}', which a stub in this same test wrote ` +
+        `into a fabricated response. Legal, and counted: prefer asserting something the ` +
+        `application derived over something you served it.`
+    );
   }
   return lines.join("\n");
 }

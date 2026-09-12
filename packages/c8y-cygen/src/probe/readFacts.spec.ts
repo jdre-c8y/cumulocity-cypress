@@ -9,7 +9,7 @@ import {
   summariseFacts,
 } from "./readFacts.js";
 import { rowsFromRawNodes, type RawNode } from "./rawNodes.js";
-import { findRow } from "../facts/types.js";
+import { findRequest, findRow } from "../facts/types.js";
 
 function node(over: Partial<RawNode> & Pick<RawNode, "i" | "parent" | "tag">): RawNode {
   return {
@@ -348,3 +348,129 @@ describe("two collects that share a label", () => {
   });
 });
 
+
+describe("the network channel, which is what a stub is anchored to", () => {
+  const exchange = {
+    kind: "network" as const,
+    label: "dashboard-resolve",
+    observedAt: "2026-09-09T09:00:00.000Z",
+    requests: [
+      {
+        method: "GET",
+        url: "https://t.example.c8y.io/inventory/managedObjects?query=%24filter%3Dhas(x)&pageSize=1000",
+        status: 200,
+        body: { managedObjects: [{ id: "98765", name: "e2eWidgetDashboard" }] },
+      },
+    ],
+  };
+
+  it("records the query string already parsed, because nobody can guess a $filter", () => {
+    // The one field B1 exists to exercise. Cockpit keys its dashboard lookup on a $filter
+    // expression that an intercept must reproduce exactly; a near miss never fires and the
+    // page loads empty, with no error anywhere. It is recorded because it cannot be derived.
+    withTempDir((dir) => {
+      fs.writeFileSync(path.join(dir, "0.json"), JSON.stringify(exchange));
+      const facts = readFacts(dir, { runId: "r", tenantUrl: "https://t.example.c8y.io" });
+
+      expect(facts.requests).toHaveLength(1);
+      expect(facts.requests[0]?.pathname).toBe("/inventory/managedObjects");
+      expect(facts.requests[0]?.query).toEqual({
+        query: "$filter=has(x)",
+        pageSize: "1000",
+      });
+    });
+  });
+
+  it("keeps the response body, which is the thing rule 3 anchors a stub to", () => {
+    withTempDir((dir) => {
+      fs.writeFileSync(path.join(dir, "0.json"), JSON.stringify(exchange));
+      const facts = readFacts(dir, { runId: "r", tenantUrl: "https://t.example.c8y.io" });
+
+      expect(facts.requests[0]?.body).toEqual({
+        managedObjects: [{ id: "98765", name: "e2eWidgetDashboard" }],
+      });
+    });
+  });
+
+  it("gives every exchange an id, so a stub can name one across a session boundary", () => {
+    withTempDir((dir) => {
+      fs.writeFileSync(path.join(dir, "0.json"), JSON.stringify(exchange));
+      const facts = readFacts(dir, { runId: "r", tenantUrl: "https://t.example.c8y.io" });
+
+      expect(facts.requests[0]?.id).toBe("dashboard-resolve#0");
+      expect(findRequest(facts, "dashboard-resolve#0")).toBe(facts.requests[0]);
+    });
+  });
+
+  it("carries a network payload with no nodes, which the schema used to require", () => {
+    expect(() => parsePayload(JSON.stringify(exchange), "n.json")).not.toThrow();
+  });
+
+  it("drops an over-large body rather than recording half of one", () => {
+    // Half a body is not a body a stub may derive from, and a clipped JSON document that still
+    // parses is the worst available outcome: it anchors a stub to a fiction that looks observed.
+    withTempDir((dir) => {
+      fs.writeFileSync(
+        path.join(dir, "0.json"),
+        JSON.stringify({ ...exchange, requests: [{ ...exchange.requests[0], bodyDropped: true, body: undefined }] })
+      );
+      const facts = readFacts(dir, { runId: "r", tenantUrl: "https://t.example.c8y.io" });
+
+      expect(facts.requests[0]?.bodyDropped).toBe(true);
+      expect(facts.requests[0]?.body).toBeUndefined();
+    });
+  });
+});
+
+describe("showing the model what it may derive a stub from", () => {
+  const facts = {
+    version: 1 as const,
+    runId: "r",
+    tenantUrl: "https://t.example.c8y.io",
+    appVersion: null,
+    surfaces: [],
+    provisionalMatches: [],
+    complete: true,
+    requests: [
+      {
+        id: "page.network#0",
+        method: "GET",
+        url: "https://t.example.c8y.io/inventory/managedObjects?query=%24filter%3Dhas(x)",
+        pathname: "/inventory/managedObjects",
+        query: { query: "$filter=has(x)" },
+        status: 200,
+        body: { managedObjects: [{ id: "1", name: "g" }] },
+      },
+      {
+        id: "page.network#1",
+        method: "GET",
+        url: "https://t.example.c8y.io/big",
+        pathname: "/big",
+        status: 200,
+        bodyDropped: true,
+      },
+    ],
+  };
+
+  it("lists each exchange by the id a stub names it with", () => {
+    // Without this the model cannot write a stub at all: fromRequest has to name something, and
+    // the summary is the only place it ever sees what was observed.
+    const text = summariseFacts(facts);
+
+    expect(text).toContain("page.network#0");
+    expect(text).toContain("GET /inventory/managedObjects");
+    // Deep enough to write a mutation path against: `managedObjects.0.name` needs the element's
+    // own keys, which is one level below the array.
+    expect(text).toContain("managedObjects: [1 x {id: str, name: str}]");
+  });
+
+  it("shows the query string, which is the half nobody can guess", () => {
+    expect(summariseFacts(facts)).toContain("$filter=has(x)");
+  });
+
+  it("marks an exchange with no body as one no stub can derive from", () => {
+    const text = summariseFacts(facts);
+
+    expect(text).toMatch(/page\.network#1.*NO BODY/);
+  });
+});

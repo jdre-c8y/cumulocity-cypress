@@ -7,7 +7,17 @@
  */
 import type { EffectiveConventions } from "../conventions/types.js";
 import type { BlessedMove } from "../conventions/types.js";
-import type { CallRepoHelperBody, IrValue, RequestBody } from "../ir/types.js";
+import type {
+  CallRepoHelperBody,
+  IrValue,
+  RequestBody,
+  RouteMatcher,
+  StubBody,
+  StubMutation,
+  SyncBody,
+  WaitForBody,
+} from "../ir/types.js";
+import type { FactsDocument } from "../facts/types.js";
 
 export class CompileError extends Error {
   constructor(message: string) {
@@ -72,6 +82,8 @@ export interface EmitContext {
   conventions: EffectiveConventions;
   /** Names that are real identifiers in the emitted TypeScript: vars and bound captures. */
   runtime: ReadonlySet<string>;
+  /** Needed only to emit a `stub`, whose body is read from an observed exchange. */
+  facts?: FactsDocument;
 }
 
 /** Every runtime value comes from here. There is no raw-expression case, on purpose. */
@@ -186,4 +198,135 @@ export function collectPreamble(names: Iterable<string>, ctx: EmitContext): Prea
     }
   }
   return { imports: [...imports].sort(), inlineSources };
+}
+
+/** An object key, quoted only when it is not a bare identifier. */
+function emitKey(key: string): string {
+  return /^[A-Za-z_$][\w$]*$/.test(key) ? key : emitString(key);
+}
+
+/**
+ * A value the probe observed, emitted as the literal it is.
+ *
+ * `emitString` and deliberately NOT `emitInterpolated`. The quoting rules are the same as
+ * everywhere else - it is the interpolation that must not happen here. An observed string is
+ * text a server sent, and a `${...}` inside one is a dollar and a brace that happened to be in
+ * a response, not a reference the model wrote. Through the interpolator it would either emit a
+ * template literal reaching for a name that does not exist or, worse, silently splice in one
+ * that does.
+ */
+function emitObservedLiteral(value: unknown): string {
+  if (typeof value === "string") return emitString(value);
+  return JSON.stringify(value);
+}
+
+/**
+ * The observed body, with the IR's recorded mutations spliced in at their paths.
+ *
+ * This is where "the model never authors a response body" is enforced, the same way the ladder
+ * enforces "the model never authors a selector". The body comes out of the facts document; the
+ * IR contributes only which exchange and which fields.
+ */
+export function emitStubBody(
+  observed: unknown,
+  mutations: readonly StubMutation[],
+  ctx: EmitContext
+): string {
+  const pending = new Map(mutations.map((m) => [m.path, m.value]));
+
+  const walk = (node: unknown, at: string): string => {
+    if (pending.has(at)) {
+      const value = pending.get(at) as IrValue;
+      pending.delete(at);
+      return emitValue(value, ctx);
+    }
+    const under = (key: string): string => (at === "" ? key : `${at}.${key}`);
+    if (Array.isArray(node)) {
+      return `[${node.map((v, i) => walk(v, under(String(i)))).join(", ")}]`;
+    }
+    if (node !== null && typeof node === "object") {
+      const entries = Object.entries(node as Record<string, unknown>).map(
+        ([k, v]) => `${emitKey(k)}: ${walk(v, under(k))}`
+      );
+      // Real Cumulocity bodies are full of empty objects - `c8y_IsDevice: {}` is how the
+      // platform marks a fragment as present - so this branch is taken constantly.
+      return entries.length === 0 ? "{}" : `{ ${entries.join(", ")} }`;
+    }
+    return emitObservedLiteral(node);
+  };
+
+  const text = walk(observed, "");
+  if (pending.size > 0) {
+    // A mutation that matches nothing is otherwise a silent no-op: the stub serves the body
+    // unchanged and the spec reads as though the change took. It then fails at run time, on a
+    // metered run, pointing nowhere near the IR.
+    throw new CompileError(
+      `stub mutation path(s) ${[...pending.keys()].map((k) => `'${k}'`).join(", ")} match nothing in the observed body. A path names a field that is there, e.g. 'managedObjects.0.name'.`
+    );
+  }
+  return text;
+}
+
+/**
+ * The route arguments, in whichever of the two house forms the matcher calls for.
+ *
+ * `method` + `url` emits the two-argument form the corpus writes most. Anything mentioning a
+ * `pathname` or a `query` emits the object form, which is the only one that can say "this path,
+ * and this query parameter exactly" - the shape B1's `$filter=` lookup needs.
+ */
+export function emitRouteMatcher(route: RouteMatcher): string[] {
+  if (route.pathname === undefined && route.query === undefined) {
+    if (route.url === undefined) {
+      throw new CompileError("a route matcher needs a 'url', or a 'pathname'");
+    }
+    const url = emitString(route.url);
+    return route.method ? [emitString(route.method), url] : [url];
+  }
+
+  const fields: string[] = [];
+  if (route.method) fields.push(`method: ${emitString(route.method)}`);
+  if (route.pathname !== undefined) fields.push(`pathname: ${emitString(route.pathname)}`);
+  if (route.url !== undefined) fields.push(`url: ${emitString(route.url)}`);
+  if (route.query) {
+    const pairs = Object.entries(route.query).map(
+      ([k, v]) => `${emitKey(k)}: ${emitString(v)}`
+    );
+    fields.push(`query: { ${pairs.join(", ")} }`);
+  }
+  return [`{ ${fields.join(", ")} }`];
+}
+
+export function emitStub(body: StubBody, ctx: EmitContext, stepId: string): string {
+  const exchange = ctx.facts?.requests.find((r) => r.id === body.fromRequest);
+  if (!exchange) {
+    throw new CompileError(
+      `step '${stepId}': stub derives from '${body.fromRequest}', which no probe observed. A stub body is never invented; it is an observed response with recorded changes.`
+    );
+  }
+  if (exchange.body === undefined) {
+    throw new CompileError(
+      `step '${stepId}': exchange '${body.fromRequest}' was recorded without a body${exchange.bodyDropped ? " - it was over the size cap and dropped whole rather than clipped" : ""}, so there is nothing here to derive from.`
+    );
+  }
+  const args = [
+    ...emitRouteMatcher(body.route),
+    emitStubBody(exchange.body, body.mutations ?? [], ctx),
+  ];
+  const alias = body.alias ? `.as(${emitString(body.alias)})` : "";
+  return `cy.intercept(${args.join(", ")})${alias};`;
+}
+
+export function emitSync(body: SyncBody): string {
+  return `cy.intercept(${emitRouteMatcher(body.route).join(", ")}).as(${emitString(body.alias)});`;
+}
+
+/** One alias is a string and several are a list, which is how the corpus writes both. */
+export function emitWaitFor(body: WaitForBody, stepId: string): string {
+  if (body.aliases.length === 0) {
+    throw new CompileError(`step '${stepId}': waitFor names no alias`);
+  }
+  const refs = body.aliases.map((a) => emitString(`@${a}`));
+  return body.aliases.length === 1
+    ? `cy.wait(${refs[0]});`
+    : `cy.wait([${refs.join(", ")}]);`;
 }

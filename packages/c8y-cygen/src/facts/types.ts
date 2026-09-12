@@ -98,12 +98,46 @@ export interface ProvisionalMatch {
   row: CandidateRow | null;
 }
 
+/**
+ * One network exchange the probe watched, and the anchor a stub is derived from.
+ *
+ * Ticket 02's rule 3 is that a fabricated response body must be *derived by recorded mutation
+ * from a response the probe actually observed*. That rule needs somewhere for the observation
+ * to live, and this is it - which is why the body is here and was not before. Without a real
+ * body on hand, every stub the model could write would be invented from nothing, and the rule
+ * would be unenforceable rather than merely unenforced.
+ */
 export interface ObservedRequest {
+  /**
+   * Stable identity within the facts document, written by the probe. A stub names one of these
+   * in `fromRequest`, the same way a selector names a candidate row - and for the same reason:
+   * the reference crosses a stateless session boundary, so it cannot be a position in an array.
+   */
+  id: string;
   method: string;
   url: string;
+  /** The path alone, with the origin and the query string taken off. */
+  pathname: string;
+  /**
+   * The query string, already parsed.
+   *
+   * This is the field B1 exists to exercise. Cockpit resolves a group's dashboards with a
+   * `$filter=((has('c8y_Dashboard!group!<id>')) or ...)` expression, and an intercept keyed on
+   * it must reproduce that string exactly or it never fires and the page loads empty. Nobody
+   * can guess it. Recording it is the only way the model ever gets it right.
+   */
+  query?: Record<string, string>;
   status: number;
   /** Present only for a 201 with an id in the body: the dynamic half of the run manifest. */
   createdId?: string;
+  /** The response body as the probe saw it, parsed. Absent when the response carried none. */
+  body?: unknown;
+  /**
+   * Set when the body was over the size cap and was dropped rather than recorded in part.
+   * Dropped, not clipped: half a body is not a body a stub may derive from, and a truncated
+   * JSON document that still parses is the worst of the available outcomes.
+   */
+  bodyDropped?: boolean;
 }
 
 export interface FactsDocument {
@@ -147,4 +181,11 @@ export function findSurfaceOf(
   rowId: string
 ): CollectedSurface | undefined {
   return facts.surfaces.find((s) => s.rows.some((r) => r.id === rowId));
+}
+
+export function findRequest(
+  facts: FactsDocument,
+  requestId: string
+): ObservedRequest | undefined {
+  return facts.requests.find((r) => r.id === requestId);
 }

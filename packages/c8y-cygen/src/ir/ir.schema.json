@@ -108,6 +108,18 @@
       ]
     },
 
+    "route": {
+      "type": "object",
+      "description": "Two forms. method+url emits cy.intercept('GET', '/path*', ...), which is what the corpus writes most. Naming a pathname or a query emits the object form, the only one that can match a query parameter exactly - which a $filter= lookup needs.",
+      "additionalProperties": false,
+      "properties": {
+        "method": { "enum": ["GET", "POST", "PUT", "DELETE"] },
+        "url": { "type": "string" },
+        "pathname": { "type": "string" },
+        "query": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+
     "target": {
       "oneOf": [
         {
@@ -196,6 +208,10 @@
             "compare": {
               "enum": ["equals", "includes", "matches", "withinMinutesOfNow"]
             },
+            "negate": {
+              "type": "boolean",
+              "description": "Asserts the comparison does NOT hold, e.g. should('not.contain.text', ...). One flag rather than a mirror comparator for each of equals/includes/matches: an outcome phrased 'shows X and not Y' is one claim about one subject."
+            },
             "operand": { "$ref": "#/definitions/value" },
             "cardinality": { "$ref": "#/definitions/cardinality" }
           }
@@ -219,6 +235,61 @@
             "method": { "enum": ["GET", "POST", "PUT", "DELETE"] },
             "url": { "type": "string" },
             "body": { "$ref": "#/definitions/value" }
+          }
+        },
+
+        "stub": {
+          "type": "object",
+          "description": "Fabricates a response. The body is NOT written here: name an exchange a probe observed in fromRequest and list the fields you changed in mutations. The compiler reads the body out of the facts document, the same way the ladder derives a selector from a candidate row.",
+          "required": ["route", "fromRequest"],
+          "additionalProperties": false,
+          "properties": {
+            "route": { "$ref": "#/definitions/route" },
+            "fromRequest": {
+              "type": "string",
+              "description": "An ObservedRequest id, as the facts summary lists it."
+            },
+            "mutations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["path", "value"],
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "A dotted path into the observed body: managedObjects.0.name. Never empty: an empty path replaces the whole body, which is authoring one rather than mutating one."
+                  },
+                  "value": { "$ref": "#/definitions/value" }
+                }
+              }
+            },
+            "alias": { "type": "string", "minLength": 1 }
+          }
+        },
+
+        "sync": {
+          "type": "object",
+          "description": "Aliases a route so a later waitFor can block on it. Fabricates nothing. This is what cy.intercept is for in this house 95% of the time - reach for stub only when the test genuinely needs a response the tenant will not give it.",
+          "required": ["route", "alias"],
+          "additionalProperties": false,
+          "properties": {
+            "route": { "$ref": "#/definitions/route" },
+            "alias": { "type": "string", "minLength": 1 }
+          }
+        },
+
+        "waitFor": {
+          "type": "object",
+          "required": ["aliases"],
+          "additionalProperties": false,
+          "properties": {
+            "aliases": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            }
           }
         },
 

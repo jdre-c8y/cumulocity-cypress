@@ -81,9 +81,14 @@ parameter list, so it is what the command actually accepts.
    state, and asserting on it is honest - the anchoring is what keeps it honest.
 
 6. **Every Expected Outcome needs an assertion, and it must read the page.** An outcome
-   satisfied by a value something fabricated in the same test is refused. The cheapest route to
-   green is to fake the value you are about to assert, and it yields a *passing* spec, so
-   nothing else in the system would catch it.
+   satisfied by a value a fabricating setup move produced in the same test is refused. The
+   cheapest route to green is to fake the value you are about to assert, and it yields a
+   *passing* spec, so nothing else in the system would catch it.
+
+   A `stub` is the one case that is counted rather than refused, because a mocked scenario is
+   often *about* what the application does with a served precondition. It is still counted, and
+   a human reads every one: where you can satisfy an outcome by asserting something the
+   application derived rather than something you served it, do that instead.
 
 7. **Declare how many elements a step expects.** `cardinality` is `{ "exactly": n }` or
    `{ "atLeast": n }`, and it is emitted as a real length assertion. This is what turns a
@@ -93,6 +98,57 @@ parameter list, so it is what the command actually accepts.
 8. **The step list is flat.** A `captures` binds a name for the rest of the flow and the
    compiler places the `.then()` blocks. You describe the test; you do not reason about
    JavaScript's async scope.
+
+## Intercepts: three jobs, and only one of them is fabrication
+
+`cy.intercept` does three different things in this house, and this design gives the two it
+supports separate verbs, because their failure modes are not comparable. A wrong wait makes a
+spec flaky. A wrong fabrication makes it **pass against a fiction**, which nothing downstream
+can detect.
+
+Measured across the repo's 154 e2e specs: **1133 intercepts, and only 63 specs stub anything.**
+Synchronisation is overwhelmingly what this command is for. Reach for `sync` first.
+
+- **`sync`** aliases a route so a later `waitFor` can block on it. It changes nothing. Use it
+  instead of guessing at a settle when the thing you are waiting for is a network call.
+
+  ```json
+  { "id": "watch-dashboards", "sync": { "route": { "method": "GET", "url": "/inventory/managedObjects*" }, "alias": "dashboards" } }
+  { "id": "await-dashboards", "waitFor": { "aliases": ["dashboards"] } }
+  ```
+
+- **`stub`** fabricates a response, and it is the only verb in this design that can. **You do
+  not write the body.** Name an exchange a probe observed - the facts summary lists them under
+  *network exchanges a stub may derive from* - and list the fields you changed. The compiler
+  reads the body out of the facts document and splices your changes in.
+
+  ```json
+  {
+    "id": "serve-group",
+    "stub": {
+      "route": { "method": "GET", "url": "/inventory/managedObjects/12345*" },
+      "fromRequest": "page.network#3",
+      "mutations": [{ "path": "name", "value": { "ref": "groupName" } }]
+    }
+  }
+  ```
+
+  This is rule 1 again, applied to response bodies instead of selectors: a body you type is a
+  body nothing can check. A `fromRequest` naming an exchange no probe saw stops the run and asks
+  for another probe - the same way an unobserved selector does.
+
+Two things about routes. `method` + `url` emits the two-argument form the corpus writes most.
+Naming a `pathname` and a `query` emits the object form, which is the only one that can match a
+query parameter **exactly** - and some of this platform's lookups are keyed on a `$filter=`
+expression that must match to the character or the route never fires and the page loads empty.
+Read the exact query off the facts summary. Do not reconstruct it.
+
+**Register every intercept before the visit it is meant to catch**, or put it in setup. Cypress
+accepts a route registered after the request has already gone, and reports nothing: the page
+simply loaded against the real tenant as though you had mocked nothing at all.
+
+A probe never stubs. Its whole job is to see what the real application returns, and a probe
+serving its own fiction makes every fact after it contingent on itself.
 
 ## How to make progress
 

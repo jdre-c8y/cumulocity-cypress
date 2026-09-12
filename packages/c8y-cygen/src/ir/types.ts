@@ -90,6 +90,16 @@ export interface AssertBody {
   /** Required when `extract` is "attribute". */
   attribute?: string;
   compare: Comparator;
+  /**
+   * Asserts the comparison does NOT hold. A flag rather than a mirror-image comparator for each
+   * of `equals`/`includes`/`matches`, because an Expected Outcome phrased "shows X and not Y"
+   * is one claim about one subject, and splitting the vocabulary would double it for nothing.
+   *
+   * B1's outcome 2 is the case: *the asset selector shows the device's name, and does not show
+   * the group's name*. Without this the second half is unassertable, and axis B counts an
+   * outcome with no assertion as a gap.
+   */
+  negate?: boolean;
   operand: IrValue;
   cardinality?: Cardinality;
 }
@@ -104,6 +114,81 @@ export interface RequestBody {
   method: "GET" | "POST" | "PUT" | "DELETE";
   url: string;
   body?: IrValue;
+}
+
+/**
+ * How an intercept is keyed on a route.
+ *
+ * Two forms, because the corpus writes two and axis D grades which one lands. `method` + `url`
+ * is the common one and emits `cy.intercept('GET', '/inventory/managedObjects/12345*', ...)`.
+ * The object form exists for the case that motivated B1: Cockpit resolves a group's dashboards
+ * with a `$filter=((has('c8y_Dashboard!group!<id>')) or ...)` query, and matching it needs
+ * `pathname` and `query` separately - a glob over the whole URL cannot express "this path, and
+ * this query parameter exactly".
+ */
+export interface RouteMatcher {
+  method?: "GET" | "POST" | "PUT" | "DELETE";
+  /** A URL glob. Mutually exclusive with `pathname`. */
+  url?: string;
+  /** An exact path, for when the query must be matched too. */
+  pathname?: string;
+  /** Query parameters that must all match. */
+  query?: Record<string, string>;
+}
+
+/**
+ * One recorded change to an observed response body.
+ *
+ * "Recorded" is the whole point. Ticket 02's rule 3 allows fabrication only by *explicit*
+ * mutation of something observed, so the change has to be a thing the linter can see and a
+ * reviewer can read - not a body the model retyped with one field quietly different.
+ */
+export interface StubMutation {
+  /** A dotted path into the observed body: `managedObjects.0.name`, `references.0.managedObject.id`. */
+  path: string;
+  value: IrValue;
+}
+
+/**
+ * Fabricates a response. The one verb in this design where fiction enters a test, and so the
+ * one that carries the most machinery.
+ *
+ * The model does not write the body. It names an exchange a probe watched and lists the fields
+ * it changed; the compiler reads the observed body out of the facts document and applies them.
+ * That is the same move the ladder makes for selectors, for the same reason - a body the model
+ * types is a body nothing can check, and the cheapest route to green is always to fabricate the
+ * value you are about to assert.
+ */
+export interface StubBody {
+  route: RouteMatcher;
+  /** The `ObservedRequest.id` this body derives from. Rule 3: no body is invented from nothing. */
+  fromRequest: string;
+  mutations?: StubMutation[];
+  alias?: string;
+}
+
+/**
+ * Aliases a route so a later `waitFor` can block on it. Fabricates nothing and changes nothing.
+ *
+ * A separate verb from `stub` rather than a flag on it, because the failure modes are not
+ * comparable: a wrong `sync` makes a spec flaky, a wrong `stub` makes it pass against a fiction.
+ * Measured across the 154 e2e specs, 1133 intercepts against 63 specs that stub anything -
+ * synchronisation is overwhelmingly what this house uses `cy.intercept` for, and giving it its
+ * own verb is what stops the model reaching for `stub` when it wants to wait.
+ *
+ * Ticket 02 names a third, `spy` - observe a call in order to assert on it. It is deliberately
+ * not here: asserting on a request needs an extractor family over `cy.wait('@a').its('request')`
+ * that nothing has yet, so a `spy` today would emit exactly what a `sync` emits. A verb that
+ * silently does a different verb's job is worse than an absent one.
+ */
+export interface SyncBody {
+  route: RouteMatcher;
+  alias: string;
+}
+
+/** Blocks until the aliased routes have responded. The declared alternative to a numeric sleep. */
+export interface WaitForBody {
+  aliases: string[];
 }
 
 /** Probe-only. Always scoped: an unscoped page yields a table far larger than the flow needs. */
@@ -122,6 +207,9 @@ export interface IrStep {
   assert?: AssertBody;
   callRepoHelper?: CallRepoHelperBody;
   request?: RequestBody;
+  stub?: StubBody;
+  sync?: SyncBody;
+  waitFor?: WaitForBody;
   collect?: CollectBody;
   /**
    * How to remove what this step created. Ticket 02 Q7(c): reset is per `it()`, lives in the
@@ -140,6 +228,9 @@ export const VERBS = [
   "assert",
   "callRepoHelper",
   "request",
+  "stub",
+  "sync",
+  "waitFor",
   "collect",
 ] as const;
 
@@ -153,6 +244,13 @@ export const ASSERTING_VERBS: readonly Verb[] = ["assert", "settle"];
 
 /** Verbs that reach the rendered page. An IR with none of them is not a UI e2e spec. */
 export const DOM_VERBS: readonly Verb[] = ["visit", "click", "settle", "assert", "collect"];
+
+/**
+ * Verbs that register a route before the application asks for it. All of them must be emitted
+ * before the `visit` they are meant to catch - an intercept registered afterwards silently
+ * never fires, and the page loads against the real tenant as though nothing were mocked.
+ */
+export const INTERCEPT_VERBS: readonly Verb[] = ["stub", "sync"];
 
 export interface IrOutcome {
   id: number;

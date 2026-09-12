@@ -40,13 +40,13 @@ npm run cygen -- scout --repo ../../../cumulocity-ui-e2e
 # free, and it repairs every cost estimate at once - do this before quoting any figure as measured
 npm run cygen -- count-tokens \
   --repo        ../../../cumulocity-ui-e2e \
-  --contract    cypress/e2e/dataAndControlTeam/events.scenario.md \
+  --contract    cypress/e2e/dataAndControlTeam/events-generated.scenario.md \
   --conventions conventions/cumulocity-ui.conventions.yaml
 
 # one action, one scored verdict
 npm run cygen -- run \
   --repo        ../../../cumulocity-ui-e2e \
-  --contract    cypress/e2e/dataAndControlTeam/events.scenario.md \
+  --contract    cypress/e2e/dataAndControlTeam/events-generated.scenario.md \
   --conventions conventions/cumulocity-ui.conventions.yaml \
   --style       integration \
   --base-url    "$C8Y_BASE_URL"
@@ -67,7 +67,7 @@ stale line as a separate correction rather than editing a file that was frozen o
 
 | Module | Where | What it owns |
 | --- | --- | --- |
-| Contract reader | `contract/` | the six-section contract; unknown sections pass through |
+| Contract reader | `contract/` | the seven-section contract (`## Tags` is the seventh); unknown sections pass through |
 | Conventions | `conventions/` | the reviewed file, its schema, the miner, the registry probe |
 | IR | `ir/` | the schema, the semantic linter, the anti-gaming guard, the frozen/free split |
 | Ladder | `ladder/` | candidate rows plus a declared cardinality in, a path out — or a refusal |
@@ -121,11 +121,19 @@ only the bill changes.
 ## Deliberately not here
 
 The assist packet's human-facing rendering (the detection and the recorded stop condition are
-here); the heal rungs — no patch turn and no re-probe, so a first emitted spec that fails ends the
-run; the run manifest and the tenant sweep; every oracle but B0, and with them the three intercept
-verbs, fragments, render branches and plugin loading; the plugin target repo; the contract genre,
-which is refused at lint time on IR shape rather than attempted; replay; and cost estimation
-before a run, which needs the baseline this slice produces.
+here); the run manifest and the tenant sweep; oracles B2, B3 and B4, and with them fragments,
+render branches and plugin loading; the plugin target repo; the contract genre, which is refused
+at lint time on IR shape rather than attempted; replay; and cost estimation before a run, which
+now has the baseline it needed.
+
+`spy`, the third of ticket 02's intercept verbs, is also not here. Asserting on a request needs an
+extractor family over `cy.wait('@a').its('request')` that nothing has yet, so a `spy` today would
+emit exactly what a `sync` emits — and a verb that silently does another verb's job is worse than
+an absent one. `stub` and `sync` are separate, which is the split that carries the safety property.
+
+Two things this section used to list have since been built: the **heal rungs** (ticket 11 — a
+patch turn and a re-probe, proven end to end by `scripts/healDrill.ts` against a live tenant), and
+the **intercept verbs** for B1 (`stub`, `sync`, `waitFor`, plus the network half of the probe).
 
 ## Tripwires to watch
 

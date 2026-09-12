@@ -148,6 +148,7 @@ export function score(input: ScoreInput): Score {
         "file location and naming",
         "reuse of existing repo helpers and fixtures rather than reinventing them",
         "mocked versus integration style consistent with the contract's Style",
+        "outcomes asserting a value a stub in the same test wrote - legal, counted below, and the thing to read the flow for",
       ],
     },
     interventions: input.interventions,

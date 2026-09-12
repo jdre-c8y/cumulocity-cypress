@@ -16,6 +16,13 @@ import type { FactsDocument } from "../facts/types.js";
 import type { IrDocument } from "../ir/types.js";
 import type { ProbePayload } from "../probe/readFacts.js";
 
+/**
+ * A probe payload that carries nodes. `ProbePayload.nodes` became optional when the network
+ * kind arrived, and every payload here is a DOM one - so the fixture says so rather than
+ * asserting it at each of the three places it is read.
+ */
+type DomPayload = ProbePayload & { nodes: RawNode[] };
+
 export const B0_CONTRACT_PATH = "cypress/e2e/dataAndControlTeam/events.scenario.md";
 export const B0_SPEC_PATH = "cypress/e2e/dataAndControlTeam/events.cy.ts";
 export const B0_DEVICE_NAME = "e2eDeviceToTestEvents1757404800000";
@@ -94,7 +101,7 @@ const EVENT_DETAIL_NODES: RawNode[] = [
  * What one probe run writes: two collect points and one provisional match, on one linear flow.
  * That is why B0 needs one probe run and not two.
  */
-export function b0ProbePayloads(): ProbePayload[] {
+export function b0ProbePayloads(): DomPayload[] {
   return [
     {
       kind: "collect",

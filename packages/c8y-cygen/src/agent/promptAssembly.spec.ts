@@ -224,3 +224,34 @@ describe("the heal turn's instructions", () => {
   });
 });
 
+
+describe("the stub-satisfied nudge", () => {
+  const lint = (over = {}) => ({
+    ok: true,
+    errors: [],
+    gaps: [],
+    coveredOutcomes: [1],
+    stubSatisfied: [],
+    ...over,
+  });
+
+  it("reaches the model even when there is no error and no gap", () => {
+    // The block used to render only when the linter had an error or a gap, so a clean IR whose
+    // outcomes all assert stubbed values said nothing at all - and the model is the only party
+    // that can still choose a different subject to assert against.
+    const prompt = assemblePrompt(
+      input({ lint: lint({ stubSatisfied: [{ outcome: 2, via: "deviceName" }] }) })
+    );
+    const text = prompt.tail.map((b) => b.text).join("\n");
+
+    expect(text).toContain("NOTE outcome 2 asserts 'deviceName'");
+  });
+
+  it("says nothing when the linter has nothing to say", () => {
+    const prompt = assemblePrompt(input({ lint: lint() }));
+
+    expect(prompt.tail.map((b) => b.text).join("\n")).not.toContain(
+      "What the linter says"
+    );
+  });
+});
