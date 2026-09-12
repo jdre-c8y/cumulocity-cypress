@@ -35,6 +35,12 @@ export interface AttemptEntry {
   run: RunKind;
   runPassed?: boolean;
   runDurationMs?: number;
+  /**
+   * When Cypress actually started. `startedAt` is stamped before the model call, so a gap
+   * computed from it is model latency plus run time - and the five-minute question the TTL
+   * decision turns on is about the interval between runs.
+   */
+  runStartedAt?: string;
   /** The IR step the failure maps back to, via the source map. */
   failingStepPath?: string;
   /** Already truncated in the middle, with the location parsed off the untruncated text. */
@@ -142,7 +148,7 @@ export function totals(entries: AttemptEntry[]): RunTotals {
   const summed = sumUsage(usages);
   const runStarts = entries
     .filter((e) => e.run !== "none")
-    .map((e) => Date.parse(e.startedAt))
+    .map((e) => Date.parse(e.runStartedAt ?? e.startedAt))
     .filter((t) => !Number.isNaN(t));
 
   return {

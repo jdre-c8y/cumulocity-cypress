@@ -518,3 +518,89 @@ describe("the broken-file corpus", () => {
     expect(messages(input)).toMatch(/outcome 8 is not an Expected Outcome/);
   });
 });
+
+describe("a capture in setup", () => {
+  it("is refused, because setup compiles to a beforeEach that binds nothing", () => {
+    // Accepted and silently discarded before. With `undo` beside it the compiler declared a
+    // teardown holder and emitted an afterEach against a variable nothing assigns - so the
+    // guard was always false, the device outlived the run, and the report said the tree
+    // was clean.
+    const ir = b0Ir();
+    const result = lintIr({
+      ir: {
+        ...ir,
+        setup: [
+          {
+            id: "make-device-early",
+            callRepoHelper: { name: "createDevice", args: [{ object: { name: "x" } }] },
+            captures: "deviceId",
+            undo: { idFrom: "deviceId" },
+          },
+        ],
+      },
+      mode: "spec",
+      conventions: b0Conventions(),
+      contract: b0Contract(),
+      facts: b0Facts(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.map((e) => e.message).join(" ")).toMatch(
+      /'captures' is not available in setup/
+    );
+  });
+
+  it("says where to put it instead, so the next turn is not a guess", () => {
+    const ir = b0Ir();
+    const result = lintIr({
+      ir: { ...ir, setup: [{ id: "s", callRepoHelper: { name: "createDevice" }, captures: "x" }] },
+      mode: "spec",
+      conventions: b0Conventions(),
+      contract: b0Contract(),
+      facts: b0Facts(),
+    });
+
+    expect(result.errors.find((e) => e.where === "setup.s")?.message).toMatch(/Move this step into/);
+  });
+});
+
+describe("a matches pattern that carries a character class", () => {
+  function matchesPattern(pattern: string) {
+    const ir = b0ProbeIr();
+    const steps = ir.steps.map((step) =>
+      step.id === "open-first-event"
+        ? { ...step, click: { target: { provisional: { within: "c8y-device-events", matches: pattern } } } }
+        : step
+    );
+    return lintIr({
+      ir: { ...ir, steps } as IrDocument,
+      mode: "probe",
+      conventions: b0Conventions(),
+      contract: b0Contract(),
+    }).errors.map((e) => e.message).join(" ");
+  }
+
+  it.each([
+    ["a digit class", "Device [0-9]+ online"],
+    ["an optional-letter class", "Creation ?[Tt]ime"],
+    ["escaped brackets in the label itself", "Alarm \\[critical\\]"],
+  ])("accepts %s, which is what the field is for", (_label, pattern) => {
+    // It rejected any pattern containing `[`, so the field's own documented use was refused -
+    // and the advice sent the model to fix something that was not wrong, for a whole turn.
+    expect(matchesPattern(pattern)).not.toMatch(/is a CSS selector/);
+  });
+
+  it.each([
+    ["an attribute selector", "[data-cy='creation-time']"],
+    ["a contains-attribute selector", "[data-cy*='custom']"],
+    ["a class selector", ".c8y-tab-view"],
+    ["a tag with an attribute", "div[data-cy=x]"],
+    ["a selector list", "[data-cy='tab-view'], c8y-device-details"],
+  ])("still catches %s", (_label, pattern) => {
+    expect(matchesPattern(pattern)).toMatch(/is a CSS selector/);
+  });
+
+  it("does not read a bare word as a selector, because it is as good a regex", () => {
+    expect(matchesPattern("Time")).not.toMatch(/is a CSS selector/);
+  });
+});

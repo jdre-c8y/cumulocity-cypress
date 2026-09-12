@@ -1,7 +1,7 @@
 import ts from "typescript";
 import { compile, type CompileInput } from "./compile.js";
 import { CompileError } from "./emit.js";
-import { buildSourceMap, stepAtLine, isStale } from "./sourceMap.js";
+import { buildSourceMap, hashContent, stepAtLine } from "./sourceMap.js";
 import { b0Conventions, b0Ir, b0ProbeIr } from "../testing/b0.js";
 import type { IrDocument, IrStep } from "../ir/types.js";
 
@@ -384,7 +384,10 @@ describe("the source map", () => {
     expect(map.unanchored).toContain("check-latitude");
   });
 
-  it("notices that the file on disk is no longer the file it was built from", () => {
+  it("records the hash of the file it was built from, for whoever reads the run afterwards", () => {
+    // There was an `isStale` beside this, and nothing ever called it: the map is rebuilt from
+    // the file every time it is used, so there is no stale map to catch. The hash is written
+    // into the run's sourcemap.json and stays as provenance.
     const { text, statements } = compile({
       ir: b0Ir(),
       mode: "spec",
@@ -392,7 +395,7 @@ describe("the source map", () => {
     });
     const map = buildSourceMap("cypress/e2e/x.cy.ts", text, statements);
 
-    expect(isStale(map, text)).toBe(false);
-    expect(isStale(map, `${text}// a human edited this\n`)).toBe(true);
+    expect(map.contentHash).toBe(hashContent(text));
+    expect(map.contentHash).not.toBe(hashContent(`${text}// a human edited this\n`));
   });
 });

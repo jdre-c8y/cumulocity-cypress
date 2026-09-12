@@ -20,11 +20,20 @@ export class CompileError extends Error {
  * A quote *preference* is not enough: a profile naming `"` as preferred emitted
  * `cy.get("[data-cy="..."]")`, which does not parse. This is a real string emitter. The repo's
  * own formatter has the last word on which quote survives; this only has to be valid.
+ *
+ * Quoting was never the only way to emit something that does not parse. A value read off the
+ * page can carry a newline, and a newline inside `'...'` is an unterminated string literal - a
+ * spec-level failure with no step location, burnt on a metered run. Anything beyond a plain
+ * printable string goes through `JSON.stringify`, whose output is JavaScript string syntax and
+ * which escapes the backslashes, quotes and control characters a hand-rolled emitter forgets.
  */
+// The control characters are the point of the rule, and the point of this line.
+// eslint-disable-next-line no-control-regex
+const NEEDS_ESCAPING = /['\\\u0000-\u001f\u007f]/;
+
 export function emitString(value: string): string {
-  if (!value.includes("'") && !value.includes("\\")) return `'${value}'`;
-  if (!value.includes('"') && !value.includes("\\")) return `"${value}"`;
-  return `\`${value.replace(/[\\`$]/g, "\\$&")}\``;
+  if (!NEEDS_ESCAPING.test(value)) return `'${value}'`;
+  return JSON.stringify(value);
 }
 
 const RUNTIME_REF = /\$\{(\w+)\}/g;
@@ -116,7 +125,8 @@ export function findBlessed(
 export function emitCallRepoHelper(body: CallRepoHelperBody, ctx: EmitContext): string {
   const move = findBlessed(ctx, body.name);
   const args = (body.args ?? []).map((a) => emitValue(a, ctx));
-  if (move.callShape && args.length === 0) return `${move.callShape};`;
+  // No early return for zero args: a `callShape` carrying `{0}` took that branch and shipped
+  // the placeholder into the spec verbatim. Substitution handles an empty list on its own.
   if (move.callShape) {
     return `${move.callShape.replace(/\{(\d+)\}/g, (_w, i: string) => args[Number(i)] ?? "")};`;
   }

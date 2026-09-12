@@ -127,7 +127,6 @@ export function b0Facts(): FactsDocument {
   const surfaces = b0ProbePayloads().map((p) => ({
     label: p.label,
     within: p.within ?? null,
-    cacheKey: `${p.label}@1`,
     observedAt: p.observedAt,
     rows: rowsFromRawNodes(p.label, p.nodes),
   }));

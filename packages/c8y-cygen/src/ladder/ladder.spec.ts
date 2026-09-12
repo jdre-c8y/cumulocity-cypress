@@ -227,3 +227,40 @@ describe("the ladder", () => {
     );
   });
 });
+
+describe("uniqueness measured over every descriptor a row could offer", () => {
+  it("does not call a selector unique when another row carries it under a losing alternative", () => {
+    // Rungs 3 and 4 pick one descriptor per row with `||`. A row with both `id` and `role`
+    // yielded only `[id="z"]`, so counting `[role="tab"]` skipped it and answered 1 - and the
+    // ladder emitted `cy.get('[role="tab"]')` for a page with two of them. The spec then failed
+    // with "cy.get() found 2 elements", which is the failure the ladder exists to prevent.
+    const target = row("panel#1", { attrs: { role: "tab" } });
+    const sibling = row("panel#2", { attrs: { id: "z", role: "tab" } });
+
+    const r = resolveSelector(target, [target, sibling], { exactly: 1 });
+
+    expect(r.ok && emitPath(r)).not.toBe(`cy.get('[role="tab"]')`);
+  });
+
+  it("does not call a placeholder unique when another row hides it behind a title", () => {
+    // Rung 4 prefers `title`, so the sibling's own descriptor list stopped there and its
+    // identical placeholder was never counted.
+    const target = row("field#1", { tag: "input", attrs: { placeholder: "Type a name" } });
+    const sibling = row("field#2", {
+      tag: "input",
+      attrs: { title: "Name", placeholder: "Type a name" },
+    });
+
+    const r = resolveSelector(target, [target, sibling], { exactly: 1 });
+
+    expect(r.ok && emitPath(r)).not.toBe(`cy.get('input[placeholder="Type a name"]')`);
+  });
+
+  it("still emits the rung each row prefers, so the chosen selector does not change", () => {
+    const target = row("panel#1", { attrs: { id: "z", role: "tab" } });
+
+    const r = resolveSelector(target, [target], { exactly: 1 });
+
+    expect(r.ok && emitPath(r)).toBe(`cy.get('[id="z"]')`);
+  });
+});

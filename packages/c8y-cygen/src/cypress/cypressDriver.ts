@@ -10,6 +10,7 @@
  */
 import { createRequire } from "node:module";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 export class CypressDriverError extends Error {
   constructor(message: string) {
@@ -236,7 +237,9 @@ export class ModuleApiCypressRunner implements RunsCypress {
       );
     }
 
-    const loaded = (await import(modulePath)) as {
+    // `import()` takes a URL, and a Windows absolute path is not one: `C:\\...` parses as a
+    // scheme. Every other path in this file is an fs path, so the conversion happens here.
+    const loaded = (await import(pathToFileURL(modulePath).href)) as {
       run?: CypressRunFn;
       default?: { run: CypressRunFn };
     };

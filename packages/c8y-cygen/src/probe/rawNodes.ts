@@ -3,11 +3,18 @@
  *
  * The browser half of the probe is deliberately dumb: it reads attributes and reports a flat
  * list of nodes with parent indices. Every reduction that matters - which attributes the ladder
- * may see, what counts as this element's own text, whether these are a repeating list - happens
- * here, in node, in code that is exercised without a browser.
+ * may see, whether these are a repeating list - happens here, in node, in code that is exercised
+ * without a browser.
  *
- * One implementation, one set of tests. A second copy of the reduction living in a browser
- * bundle would drift, and it would drift silently.
+ * One exception, and it is forced rather than chosen: an element's own text is read in the
+ * browser. Deciding it here needs the parent's whole subtree text and each child's, and the
+ * payload cannot carry those - an outer wrapper's `textContent` is most of the page. Truncating
+ * them to fit is what broke it: node subtracted strings that had each been cut at 200
+ * characters, so on any large subtree the subtraction found nothing to remove and the wrapper
+ * kept the entire panel's text.
+ *
+ * One implementation, one set of tests. A second copy of a reduction living in a browser bundle
+ * would drift, and it would drift silently.
  */
 import { describeElement, type ElementLike } from "./describeElement.js";
 import type { CandidateRow, Visibility } from "../facts/types.js";
@@ -22,7 +29,7 @@ export interface RawNode {
   /** Only the ladder's vocabulary is read in the browser; anything else never leaves it. */
   attrs: Record<string, string>;
   classes: string[];
-  /** Raw textContent, truncated. Own text is worked out here, where it can be tested. */
+  /** This element's OWN text - its direct text children only - normalised and truncated. */
   text: string;
   visibility: Visibility;
 }
@@ -51,6 +58,7 @@ class RawElement implements ElementLike {
     return { length: kids.length, item: (i: number) => kids[i] ?? null };
   }
 
+  /** Own text, not the subtree's: that is what the browser half reports. */
   get textContent(): string {
     return this.node.text;
   }

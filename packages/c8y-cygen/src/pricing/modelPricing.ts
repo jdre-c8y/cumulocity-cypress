@@ -83,9 +83,14 @@ const PER_TOKEN = 1_000_000;
 
 export function costOf(usage: UsageRecord): number {
   const rates = ratesFor(usage.model);
-  // When the response reports the TTL split, use it. Otherwise assume the more expensive of the
-  // two rather than flattering the figure.
-  const write1h = usage.cacheCreation1h ?? usage.cacheCreationInputTokens;
+  // When the response reports the TTL split, use it. When it reports neither half, assume the
+  // more expensive of the two rather than flattering the figure.
+  //
+  // "Neither", not "not this one": falling back on the total whenever the 1h half is absent
+  // charged every 5m token a second time at the 1h rate, so a response carrying only the 5m
+  // split was reported at 2.6x its real cost - on the figure the score line calls the cost.
+  const splitReported = usage.cacheCreation1h !== undefined || usage.cacheCreation5m !== undefined;
+  const write1h = usage.cacheCreation1h ?? (splitReported ? 0 : usage.cacheCreationInputTokens);
   const write5m = usage.cacheCreation5m ?? 0;
 
   return (

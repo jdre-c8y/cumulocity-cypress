@@ -51,6 +51,52 @@ describe("the frozen/free split", () => {
     expect(checkPatch(b0Ir(), after).accepted).toBe(true);
   });
 
+  it("accepts removing a collect, which is how rung 2 gets back to spec mode", () => {
+    // Without this the turn that ends a re-probe is always rejected, and the loop's answer used
+    // to be to switch the whole split off for that turn - un-freezing every assertion field on
+    // the one rung reached only after two failures.
+    const withCollect = patched((ir) => {
+      ir.steps.splice(4, 0, {
+        id: "look-at-the-panel",
+        collect: { label: "panel", within: "c8y-event-details" },
+      });
+    });
+
+    expect(checkPatch(withCollect, b0Ir()).accepted).toBe(true);
+  });
+
+  it("still rejects deleting a step that asserts something", () => {
+    const after = patched((ir) => {
+      ir.steps.splice(6, 1);
+    });
+
+    expect(checkPatch(b0Ir(), after).accepted).toBe(false);
+  });
+
+  it("sees a step move between setup and steps, which keying by id alone did not", () => {
+    // It diffed as nothing: accepted with no reason to give, and recorded as "(no change)",
+    // while the emitted spec ran the creation in a beforeEach with different scope, different
+    // capture visibility and a different path in the source map.
+    const after = patched((ir) => {
+      const moved = ir.steps.shift() as IrStep;
+      ir.setup = [...(ir.setup ?? []), moved];
+    });
+
+    const changed = diffIr(b0Ir(), after).map((c) => c.path);
+
+    expect(changed).toContain("steps.make-device.@sequence");
+  });
+
+  it("sees two steps swapped, which changes the flow and used to diff as nothing", () => {
+    const after = patched((ir) => {
+      const [a, b] = [ir.steps[6] as IrStep, ir.steps[7] as IrStep];
+      ir.steps[6] = b;
+      ir.steps[7] = a;
+    });
+
+    expect(diffIr(b0Ir(), after).map((c) => c.path)).toContain("steps.check-source.@position");
+  });
+
   it("rejects weakening a declared cardinality, which is the whole reason the rule exists", () => {
     // The cheapest fix to "declared 3, observed 1" is to declare 1. It lints clean and passes.
     const after = patched((ir) => {

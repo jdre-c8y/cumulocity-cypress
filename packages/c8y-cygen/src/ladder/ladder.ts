@@ -60,40 +60,62 @@ const isCustomTag = (t: string): boolean =>
 interface Rung {
   n: number;
   id: string;
-  of: (r: CandidateRow) => Descriptor | null;
+  /**
+   * Every descriptor this rung could produce for a row, best first.
+   *
+   * A list rather than a winner, because two different questions are asked of a rung. Climbing
+   * wants the one it would emit; counting wants all of them. Rungs 3 and 4 pick with `||`, so a
+   * row carrying both `id` and `role` yields only `[id=...]` - and a count of `[role="tab"]`
+   * that skipped such a row came back 1 for a selector matching two elements. The ladder then
+   * emitted it as unique and the spec failed at run time with "cy.get() found 2 elements", which
+   * is the failure the ladder exists to make impossible.
+   */
+  all: (r: CandidateRow) => Descriptor[];
 }
+
+const compact = (xs: (Descriptor | false | "" | null | undefined)[]): Descriptor[] =>
+  xs.filter((x): x is Descriptor => Boolean(x));
+
+/** What this rung would emit: the first alternative it can produce. */
+const rungOf = (rung: Rung, r: CandidateRow): Descriptor | null => rung.all(r)[0] ?? null;
 
 /**
  * Rungs 3 and 4 are the correction the corpus forced: humans write `[name]` 398 times and
  * `[title]` 1,335, but `[role]` only 18. "Semantic role/label" named the wrong attributes.
  */
 export const RUNGS: Rung[] = [
-  { n: 1, id: "data-cy", of: (r) => (r.attrs.dataCy ? `[data-cy="${r.attrs.dataCy}"]` : null) },
-  { n: 2, id: "custom-tag", of: (r) => (isCustomTag(r.tag) ? r.tag : null) },
+  {
+    n: 1,
+    id: "data-cy",
+    all: (r) => compact([r.attrs.dataCy && `[data-cy="${r.attrs.dataCy}"]`]),
+  },
+  { n: 2, id: "custom-tag", all: (r) => compact([isCustomTag(r.tag) && r.tag]) },
   {
     n: 3,
     id: "stable-attr",
-    of: (r) =>
-      (r.attrs.name && `${r.tag}[name="${r.attrs.name}"]`) ||
-      (r.attrs.formControlName &&
-        `${r.tag}[formcontrolname="${r.attrs.formControlName}"]`) ||
-      (r.attrs.id && `[id="${r.attrs.id}"]`) ||
-      (r.attrs.role && `[role="${r.attrs.role}"]`) ||
-      (r.attrs.ariaLabel && `[aria-label="${r.attrs.ariaLabel}"]`) ||
-      null,
+    all: (r) =>
+      compact([
+        r.attrs.name && `${r.tag}[name="${r.attrs.name}"]`,
+        r.attrs.formControlName && `${r.tag}[formcontrolname="${r.attrs.formControlName}"]`,
+        r.attrs.id && `[id="${r.attrs.id}"]`,
+        r.attrs.role && `[role="${r.attrs.role}"]`,
+        r.attrs.ariaLabel && `[aria-label="${r.attrs.ariaLabel}"]`,
+      ]),
   },
   {
     n: 4,
     id: "human-text",
-    of: (r) =>
-      (r.attrs.title && `[title="${r.attrs.title}"]`) ||
-      (r.attrs.placeholder && `${r.tag}[placeholder="${r.attrs.placeholder}"]`) ||
-      (r.text ? { tag: r.tag, text: r.text } : null),
+    all: (r) =>
+      compact([
+        r.attrs.title && `[title="${r.attrs.title}"]`,
+        r.attrs.placeholder && `${r.tag}[placeholder="${r.attrs.placeholder}"]`,
+        r.text ? { tag: r.tag, text: r.text } : null,
+      ]),
   },
   {
     n: 5,
     id: "tag-class",
-    of: (r) => (r.classes.length ? `${r.tag}.${r.classes.join(".")}` : null),
+    all: (r) => compact([r.classes.length ? `${r.tag}.${r.classes.join(".")}` : null]),
   },
   // Rung 6, position, is not a descriptor. It is applied at the end, under the repeating-list rule.
 ];
@@ -106,8 +128,8 @@ const ancestorDescriptors = (a: AncestorDescriptor): string[] =>
     a.classes?.length ? `${a.tag}.${a.classes.join(".")}` : null,
   ].filter((x): x is string => Boolean(x));
 
-const leafDescriptors = (r: CandidateRow): Descriptor[] =>
-  RUNGS.map((g) => g.of(r)).filter((x): x is Descriptor => x !== null);
+/** Every descriptor any rung could produce for this row - what a count must be measured over. */
+const leafDescriptors = (r: CandidateRow): Descriptor[] => RUNGS.flatMap((g) => g.all(r));
 
 function sameDescriptor(a: Descriptor, b: Descriptor): boolean {
   if (typeof a === "string" || typeof b === "string") return a === b;
@@ -193,7 +215,7 @@ export function resolveSelector(
   rows: CandidateRow[],
   cardinality: Cardinality
 ): LadderResult {
-  const leaves = RUNGS.map((g) => ({ rung: g.n, id: g.id, d: g.of(target) })).filter(
+  const leaves = RUNGS.map((g) => ({ rung: g.n, id: g.id, d: rungOf(g, target) })).filter(
     (x): x is { rung: number; id: string; d: Descriptor } => x.d !== null
   );
 

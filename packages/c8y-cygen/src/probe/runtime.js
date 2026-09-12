@@ -82,6 +82,26 @@ function classesOf(el) {
   return out;
 }
 
+/**
+ * The element's OWN text: the concatenation of its direct text children, and nothing its
+ * descendants carry.
+ *
+ * This is read here, in the browser, because here is the only place it can be read exactly. The
+ * payload used to carry `el.textContent` - the whole subtree - truncated at 200 characters, and
+ * node then tried to recover own text by subtracting each child's text from the parent's. Both
+ * strings had been truncated independently, so on any large subtree neither contains the other,
+ * the subtraction quietly did nothing, and a wrapper kept the entire panel's text: exactly the
+ * row that matches every `contains` and makes the ladder's uniqueness measurement meaningless.
+ */
+function ownTextOf(el) {
+  var out = '';
+  for (var i = 0; i < el.childNodes.length; i++) {
+    var node = el.childNodes[i];
+    if (node.nodeType === 3) out += node.nodeValue || '';
+  }
+  return out.replace(/\s+/g, ' ').trim();
+}
+
 function describeNode(el, index, parentIndex) {
   return {
     i: index,
@@ -89,7 +109,7 @@ function describeNode(el, index, parentIndex) {
     tag: el.tagName.toLowerCase(),
     attrs: attrsOf(el),
     classes: classesOf(el),
-    text: (el.textContent || '').slice(0, MAX_TEXT),
+    text: ownTextOf(el).slice(0, MAX_TEXT),
     visibility: visibilityOf(el)
   };
 }
@@ -217,6 +237,31 @@ Cypress.Commands.add('c8yCygenCollect', function (options) {
  * The match count travels with it. Resolution refuses on a mismatch against the step's declared
  * cardinality rather than silently taking the first of several, which is what Cypress would do.
  */
+/**
+ * How many elements the guess could have meant, measured over the same own text the ladder's
+ * rows carry.
+ *
+ * Counted here rather than off the `.contains()` result, because `.contains()` yields exactly
+ * ONE element - so `$all.length` was always 1 for any guess carrying `text` or `matches`, which
+ * is precisely the vague guess the count exists to flag. The refusal below promised to stop
+ * silently taking the first of several and could never fire.
+ *
+ * Synchronous, and deliberately after the retrying chain has already resolved: the DOM has
+ * settled by then, so a plain query sees what the assertion saw.
+ */
+function countMatches(guess) {
+  var $all = Cypress.$(guess.within || 'body').find(guess.tag || '*');
+  var re = guess.matches ? new RegExp(guess.matches) : null;
+  var n = 0;
+  $all.each(function (_i, el) {
+    var text = ownTextOf(el);
+    if (guess.text && text.indexOf(guess.text) === -1) return;
+    if (re && !re.test(text)) return;
+    n += 1;
+  });
+  return n;
+}
+
 Cypress.Commands.add('c8yCygenProvisional', function (stepId, guess) {
   var chain = guess.within
     ? cy.get(guess.within).find(guess.tag || '*')
@@ -225,9 +270,19 @@ Cypress.Commands.add('c8yCygenProvisional', function (stepId, guess) {
   if (guess.matches) chain = chain.contains(new RegExp(guess.matches));
 
   return chain.then(function ($all) {
-    var matchCount = $all.length;
+    var matchCount = countMatches(guess);
     var $one = typeof guess.nth === 'number' ? $all.eq(guess.nth) : $all.first();
     var el = $one.get(0);
+    // An out-of-range `nth` used to die two lines down as "Cannot read properties of undefined
+    // (reading 'closest')" - a TypeError inside the probe runtime, which aborts the it() and
+    // takes every later collect in the same run with it. The guess is what was wrong; say so.
+    if (!el) {
+      throw new Error(
+        "c8y-cygen probe, step '" + stepId + "': nth is " + guess.nth + ', but the guess matched ' +
+          $all.length + ' element(s) here. Indexes start at 0, so the highest usable one is ' +
+          ($all.length - 1) + '.'
+      );
+    }
     var root = guess.within
       ? el.closest(guess.within) || el.ownerDocument.body
       : el.ownerDocument.body;

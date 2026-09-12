@@ -74,8 +74,6 @@ export interface PageComponent {
 export interface CollectedSurface {
   label: string;
   within: string | null;
-  /** tenant URL + application version + the establishing IR prefix, plus a TTL backstop. */
-  cacheKey: string;
   observedAt: string;
   rows: CandidateRow[];
   /**

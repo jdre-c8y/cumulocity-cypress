@@ -7,7 +7,6 @@ import {
   discardSpec,
   ensureIgnored,
   specPathForContract,
-  writeSpec,
 } from "./workingArea.js";
 import { hashBody, mayWrite, readProvenance, withHeader } from "./provenance.js";
 
@@ -16,6 +15,12 @@ function tempRepo(): string {
 }
 
 const PROV = { toolVersion: "0.2.0", contractPath: "cypress/e2e/team/events.scenario.md" };
+
+/** A spec with this tool's provenance header on it, which is what `discardSpec` recognises. */
+function writeGenerated(target: string, body: string): void {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, withHeader(PROV, body));
+}
 
 describe("specPathForContract", () => {
   it("is a pure function of the contract path, so a re-run cannot make a second file", () => {
@@ -78,34 +83,11 @@ describe("the provenance header", () => {
   });
 });
 
-describe("writeSpec", () => {
-  it("writes into an empty path and then over its own output", () => {
-    const repo = tempRepo();
-    const target = path.join(repo, "cypress/e2e/team/events.cy.ts");
-
-    expect(writeSpec(target, "one\n", PROV).written).toBe(true);
-    expect(writeSpec(target, "two\n", PROV).written).toBe(true);
-    expect(fs.readFileSync(target, "utf8")).toContain("two");
-  });
-
-  it("refuses a path a human touched, and says which case it is", () => {
-    const repo = tempRepo();
-    const target = path.join(repo, "cypress/e2e/team/events.cy.ts");
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, "hand written\n");
-
-    const result = writeSpec(target, "generated\n", PROV);
-
-    expect(result.written).toBe(false);
-    expect(fs.readFileSync(target, "utf8")).toBe("hand written\n");
-  });
-});
-
 describe("discardSpec", () => {
   it("removes a spec this tool wrote when the run did not end green", () => {
     const repo = tempRepo();
     const target = path.join(repo, "x.cy.ts");
-    writeSpec(target, "body\n", PROV);
+    writeGenerated(target, "body\n");
 
     discardSpec(target);
 

@@ -170,6 +170,32 @@ function isAnchoredLiteral(literal: string | number | boolean, contract: Scenari
   return contract.raw.includes(text);
 }
 
+/**
+ * Selector-shaped as a whole, rather than merely bracket-bearing.
+ *
+ * `[` is a character class in every non-trivial regular expression, and `matches` exists for
+ * exactly those - `Device [0-9]+ online`, `Creation ?[Tt]ime`. Rejecting on a bare `[` refused
+ * the field's own documented use and spent a turn telling the model to fix what was right.
+ *
+ * The bracketed form needs an `=`: an attribute selector effectively always carries one, and
+ * without that condition a bare `[0-9]` reads as a selector. A missed selector costs one probe
+ * run; a refused regex costs a turn and sends the model somewhere there is nothing to find.
+ *
+ * A bare tag name counts only inside a comma-separated list, where the commas have already
+ * settled what the string is. On its own, `Time` is as good a regex as it is a selector.
+ */
+const SELECTOR_ALONE =
+  /^[.#][\w-]+$|^[a-z][\w-]*\[[^\]]*=[^\]]*\]$|^\[[\w-]+[*^$|~]?=[^\]]*\]$/i;
+
+const BARE_TAG = /^[a-z][\w-]*$/i;
+
+function looksLikeSelector(pattern: string): boolean {
+  const parts = pattern.split(",").map((p) => p.trim());
+  if (parts.some((p) => p === "")) return false;
+  if (parts.length === 1) return SELECTOR_ALONE.test(parts[0] as string);
+  return parts.every((p) => SELECTOR_ALONE.test(p) || BARE_TAG.test(p));
+}
+
 export function lintIr(input: LintInput): LintResult {
   const { ir, mode, conventions, contract, facts } = input;
   const errors: LintProblem[] = [];
@@ -198,7 +224,20 @@ export function lintIr(input: LintInput): LintResult {
   // names in scope at all. Vars are const declarations at the top of the it() body.
   const declared = new Set(Object.keys(ir.vars ?? {}));
   const boundBefore = new Map<string, Set<string>>();
-  for (const step of ir.setup ?? []) boundBefore.set(step.id, new Set());
+  for (const step of ir.setup ?? []) {
+    boundBefore.set(step.id, new Set());
+    // Nothing binds in setup, so a capture there is not a name that is merely out of scope -
+    // it is a name that never exists. It was accepted and silently discarded, which is bad on
+    // its own and worse with `undo`: the teardown holder was declared and the afterEach emitted
+    // against a variable nothing ever assigns, so the guard is always false, the device is never
+    // deleted, and the run reports a clean tree. Refused here, where it costs no Cypress run.
+    if (step.captures) {
+      add(
+        `setup.${step.id}`,
+        `'captures' is not available in setup: setup compiles to beforeEach, which runs before the test body binds anything. Move this step into 'steps', where a capture binds for the rest of the flow.`
+      );
+    }
+  }
   for (const step of ir.steps) {
     boundBefore.set(step.id, new Set(declared));
     if (step.captures) declared.add(step.captures);
@@ -339,7 +378,7 @@ export function lintIr(input: LintInput): LintResult {
       // selector and an invalid character class, and it costs a whole probe run to find out.
       const pattern = target.provisional.matches;
       if (pattern !== undefined) {
-        if (/\[|^[.#]/.test(pattern)) {
+        if (looksLikeSelector(pattern)) {
           add(
             where,
             `provisional 'matches' is a regular expression over visible text, and ${JSON.stringify(pattern)} is a CSS selector. A selector belongs in 'tag' or 'within'.`

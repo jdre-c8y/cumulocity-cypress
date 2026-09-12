@@ -10,7 +10,13 @@
  * The changed field paths are computed from the diff rather than claimed, which is what a later
  * stateless session needs in order to see an oscillation it did not take part in.
  */
-import { allSteps, verbsOf, type IrDocument, type IrStep } from "./types.js";
+import {
+  allSteps,
+  verbsOf,
+  PROBE_ONLY_VERBS,
+  type IrDocument,
+  type IrStep,
+} from "./types.js";
 
 export interface FieldChange {
   path: string;
@@ -30,6 +36,13 @@ export interface PatchVerdict {
 /**
  * Intent, not mechanics. What a step asserts is frozen; how it finds its target is free.
  * Adding a step is never frozen - an addition cannot weaken an assertion - but deleting one is.
+ *
+ * With one exception, and it is the exception that lets this guard stay on for a whole heal
+ * sequence. A `collect` step asserts nothing: it is probe-only scaffolding, and rung 2 works by
+ * adding collects, running a probe, and then taking them back out to compile in spec mode. If
+ * deleting one counted as deleting a step, the turn that ends a re-probe would always be
+ * rejected - which is why the loop used to switch this whole check off for that turn, and with
+ * it the freeze on every assertion field, on the one rung reached only after two failures.
  */
 const FROZEN_STEP_FIELDS = [
   "assert.extract",
@@ -56,6 +69,15 @@ function flatten(value: unknown, prefix: string, into: Map<string, unknown>): vo
   }
 }
 
+/**
+ * A step that exists only to observe. It puts nothing in the emitted spec - the compiler refuses
+ * `collect` in spec mode outright - so removing one cannot weaken what the spec asserts.
+ */
+function isProbeScaffolding(step: IrStep): boolean {
+  const verbs = verbsOf(step);
+  return verbs.length > 0 && verbs.every((v) => PROBE_ONLY_VERBS.includes(v));
+}
+
 function stepsById(ir: IrDocument): Map<string, IrStep> {
   return new Map(allSteps(ir).map((s) => [s.id, s]));
 }
@@ -66,6 +88,18 @@ function fieldMap(ir: IrDocument): Map<string, unknown> {
   flatten(ir.meta, "meta", out);
   flatten(ir.vars ?? {}, "vars", out);
   for (const [id, step] of stepsById(ir)) flatten(step, `steps.${id}`, out);
+  // Where each step sits, as fields of its own. Keying by id carries neither the order nor the
+  // list a step belongs to, so re-ordering the flow - or moving a step between `setup` and
+  // `steps`, which changes its scope, what its capture can see and its path in the source map -
+  // diffed as nothing at all: accepted with no reason to give, and logged as "(no change)".
+  const place = (steps: IrStep[] | undefined, sequence: "setup" | "steps"): void => {
+    (steps ?? []).forEach((step, i) => {
+      out.set(`steps.${step.id}.@sequence`, sequence);
+      out.set(`steps.${step.id}.@position`, i);
+    });
+  };
+  place(ir.setup, "setup");
+  place(ir.steps, "steps");
   for (const outcome of ir.outcomes) flatten(outcome, `outcomes.${outcome.id}`, out);
   return out;
 }
@@ -100,10 +134,10 @@ function isFrozenPath(path: string, before: IrDocument, after: IrDocument): bool
   const rest = path.slice("steps.".length);
   const field = rest === stepId ? "" : rest.slice(stepId.length + 1);
 
-  // Deleting a step is frozen; adding one is free.
+  // Deleting a step is frozen; adding one is free. Removing probe scaffolding is neither.
   const wasThere = beforeSteps.get(stepId);
   const stillThere = afterSteps.get(stepId);
-  if (wasThere && !stillThere) return true;
+  if (wasThere && !stillThere) return !isProbeScaffolding(wasThere);
   if (!wasThere) return false;
 
   // An existing step's verb may not change. Checked on the step rather than on the path,

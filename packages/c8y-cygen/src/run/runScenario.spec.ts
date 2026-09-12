@@ -79,6 +79,8 @@ class ScriptedCypress implements RunsCypress {
 
   private specRunsSoFar = 0;
 
+  private probeRunsSoFar = 0;
+
   constructor(
     /** One verdict per spec run; the last repeats. A heal test needs fail, then pass. */
     private readonly specRunPasses: boolean | boolean[],
@@ -89,13 +91,26 @@ class ScriptedCypress implements RunsCypress {
      */
     private readonly pluginWrites?: string,
     /** The emitted line the failure names. Pick one no statement owns to leave it unmapped. */
-    private readonly failingLine: number = 34
+    private readonly failingLine: number = 34,
+    /**
+     * One verdict per probe run; the last repeats. A probe dying partway is normal rather than
+     * exceptional - it is how a wrong provisional guess reports itself - so a double that can
+     * only pass them cannot express the case the loop is most often in.
+     */
+    private readonly probeRunPasses: boolean | boolean[] = true
   ) {}
 
+  private nextVerdict(script: boolean | boolean[], index: number): boolean {
+    if (!Array.isArray(script)) return script;
+    return script[Math.min(index, script.length - 1)] ?? false;
+  }
+
   private specRunPasses_(): boolean {
-    const index = this.specRunsSoFar++;
-    if (!Array.isArray(this.specRunPasses)) return this.specRunPasses;
-    return this.specRunPasses[Math.min(index, this.specRunPasses.length - 1)] ?? false;
+    return this.nextVerdict(this.specRunPasses, this.specRunsSoFar++);
+  }
+
+  private probeRunPasses_(): boolean {
+    return this.nextVerdict(this.probeRunPasses, this.probeRunsSoFar++);
   }
 
   async run(request: RunRequest): Promise<CypressRunResult> {
@@ -115,9 +130,25 @@ class ScriptedCypress implements RunsCypress {
           JSON.stringify(payload)
         );
       });
+      // Facts first, verdict second: a probe that dies partway still returns everything it had
+      // already collected, which is the whole reason a wrong guess costs rows and not the run.
+      if (this.probeRunPasses_()) {
+        return {
+          pass: true,
+          testFailures: [],
+          specFailures: [],
+          durationMs: 30_000,
+          startedAt: new Date().toISOString(),
+        };
+      }
       return {
-        pass: true,
-        testFailures: [],
+        pass: false,
+        testFailures: [
+          {
+            title: ["probe"],
+            errorMessage: "AssertionError: Expected to find element: `c8y-nope`, never found it.",
+          },
+        ],
         specFailures: [],
         durationMs: 30_000,
         startedAt: new Date().toISOString(),
@@ -578,13 +609,13 @@ function retitled(suffix: string): IrDocument {
 const patched = (): IrDocument => retitled("healed");
 
 /** What rung 2 asks for: the failing target demoted to provisional, and a collect point at it. */
-function demoted(): IrDocument {
+function demotedTo(tag: string): IrDocument {
   const ir = b0Ir();
   const steps = ir.steps.map((step) =>
     step.id === "tabs-visible"
       ? {
           ...step,
-          settle: { ...step.settle, target: { provisional: { tag: "c8y-tabs-outlet" } } },
+          settle: { ...step.settle, target: { provisional: { tag } } },
         }
       : step
   );
@@ -597,6 +628,8 @@ function demoted(): IrDocument {
     ],
   } as IrDocument;
 }
+
+const demoted = (): IrDocument => demotedTo("c8y-tabs-outlet");
 
 /**
  * The emitted line the `tabs-visible` settle owns. The compiler puts it at body line 32 and the
@@ -722,6 +755,70 @@ describe("the heal ladder, driven end to end", () => {
     await runScenario(options(repo, { callsModel: model }));
 
     expect(promptsOf(model).every((p) => !p.includes("heal turn"))).toBe(true);
+  });
+});
+
+describe("what the heal turn is still not allowed to do", () => {
+  /** The re-probe taken back out, and an assertion quietly weakened on the way. */
+  function weakenedAfterReprobe(): IrDocument {
+    const ir = patched();
+    const steps = ir.steps.map((step) =>
+      step.assert ? { ...step, assert: { ...step.assert, cardinality: { exactly: 1 } } } : step
+    );
+    return { ...ir, steps } as IrDocument;
+  }
+
+  it("rejects a weakened assertion on the turn that ends a re-probe", async () => {
+    // The loop used to clear `previousSpecFailed` on every compile, probe included - so the
+    // turn after a rung-2 re-probe was the one turn in the run with no frozen/free split at
+    // all, on the rung reached only after two spec failures.
+    const repo = makeRepo();
+    const model = new ScriptedModel([
+      fenced(b0ProbeIr()),
+      fenced(b0Ir()),
+      fenced(patched()),
+      fenced(demoted()),
+      fenced(weakenedAfterReprobe()),
+    ]);
+
+    const report = await runScenario(
+      options(repo, {
+        callsModel: model,
+        runsCypress: new ScriptedCypress([false, false, true], undefined, 1),
+      })
+    );
+
+    const rejected = report.attempts.filter((a) => a.verdict === "rejected");
+    expect(rejected[0]?.rejectReason).toMatch(/frozen field/);
+    // One rejected diff is re-prompted; a second asks a human. It never reaches a Cypress run.
+    expect(report.stopCondition).toBe("heal-rejected-twice");
+  });
+
+  it("does not count a failed probe run as a value that was tried and failed", async () => {
+    // A probe dying partway is normal - it is how a wrong provisional guess reports itself.
+    // Counting it as patch history indexed every field that iteration touched as
+    // already-failed, so the re-point a later probe confirmed came back rejected.
+    const repo = makeRepo();
+    const model = new ScriptedModel([
+      fenced(b0ProbeIr()),
+      fenced(demoted()),
+      fenced(b0Ir()),
+      fenced(demoted()),
+      fenced(patched()),
+    ]);
+
+    const report = await runScenario(
+      options(repo, {
+        callsModel: model,
+        // Probe passes, probe FAILS, spec fails, probe passes, spec passes. The rung-1 patch at
+        // turn 4 re-uses the values the failed probe at turn 2 set - and a probe failing is how
+        // a wrong provisional guess reports itself, not evidence that those values are wrong.
+        runsCypress: new ScriptedCypress([false, true], undefined, 1, [true, false, true]),
+      })
+    );
+
+    expect(report.attempts.filter((a) => a.verdict === "rejected")).toEqual([]);
+    expect(report.stopCondition).toBe("green");
   });
 });
 

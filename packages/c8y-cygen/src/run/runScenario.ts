@@ -326,7 +326,12 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
       const ir = parsed as IrDocument;
       const changed = previousIr ? diffIr(previousIr, ir) : [];
       if (previousIr && previousSpecFailed) {
-        const patch = checkPatch(previousIr, ir, history);
+        // After a re-probe, a value coming back is not the model flip-flopping. The ladder
+        // re-derived it from fresh observation, so landing on the selector that failed is the
+        // finding rather than the mistake - and Q15(b) below is what answers it, by stopping
+        // the run and handing a human the strongest question any iteration could produce.
+        // Feeding the history here instead rejects the correct result of rung 2 every time.
+        const patch = checkPatch(previousIr, ir, probedSinceFailure ? [] : history);
         if (!patch.accepted) {
           attemptLog.append({
             ...base,
@@ -450,8 +455,12 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
 
       const compiled = compile({ ir, mode, conventions, itTags: contract.tags });
 
-      previousSpecFailed = false;
-      // The rung is spent. Carrying it into the next turn tells a model that has just
+      // `previousSpecFailed` is NOT cleared here. It used to be, for every compile including a
+      // probe one - so a rung-2 re-probe switched the frozen/free split off for the turn after
+      // it, which is the turn that writes the spec, on the rung reached only after two failures.
+      // The guard stays on until a spec run is green, and green leaves the loop.
+      //
+      // The rung, though, is spent. Carrying it into the next turn tells a model that has just
       // re-probed to re-probe again, which loops until the probe cap ends the run - and
       // carries a stale "this is your last attempt" with it.
       heal = undefined;
@@ -493,12 +502,18 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
           verdict: "accepted",
           run: "probe",
           runPassed: result.pass,
+          runStartedAt: result.startedAt,
           runDurationMs: result.durationMs,
           ...(result.testFailures[0]?.errorMessage
             ? { diagnostic: result.testFailures[0].errorMessage }
             : {}),
         });
-        history.push({ changed, passed: result.pass });
+        // A probe run is deliberately NOT patch history. The oscillation check reads history as
+        // "this value was tried and the run that followed failed", and a probe that dies partway
+        // is normal rather than exceptional - it is how a wrong provisional guess reports itself.
+        // Counting it indexes every field that iteration touched as already-failed, so the very
+        // re-point the probe just confirmed comes back rejected, and two of those end the run at
+        // heal-rejected-twice over nothing.
         previousIr = ir;
         probedSinceFailure = true;
         log(
@@ -566,6 +581,7 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
         verdict: "accepted",
         run: "spec",
         runPassed: result.pass,
+        runStartedAt: result.startedAt,
         runDurationMs: result.durationMs,
         ...(failingStep ? { failingStepPath: failingStep } : {}),
         ...(lastDiagnostic ? { diagnostic: lastDiagnostic } : {}),
@@ -578,8 +594,11 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
       if (result.pass) {
         green = true;
         stop = "green";
-        // Re-write the header without the not-green mark now that the run is green.
-        writeFormattedSpec(
+        // Re-write the header without the not-green mark now that the run is green. The refusal
+        // is honoured here too: if someone touched the file between the run and this write, the
+        // NOT-GREEN header survives on a green spec - and reading it back regardless is how that
+        // stale content reached the scorer, which is what axis B is computed from.
+        const regreened = writeFormattedSpec(
           specAbsolute,
           compiled.text,
           baseConventions,
@@ -587,6 +606,11 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
           options.contractPath,
           false
         );
+        if (!regreened.written) {
+          notes.push(
+            `the spec went green but the not-green header could not be cleared: ${regreened.reason ?? "the path is not ours to write"}`
+          );
+        }
         specContent = fs.readFileSync(specAbsolute, "utf8");
         lastSourceMap = buildSourceMap(specRelative, specContent, compiled.statements);
         fs.writeFileSync(area.sourceMapPath, JSON.stringify(lastSourceMap, null, 2));

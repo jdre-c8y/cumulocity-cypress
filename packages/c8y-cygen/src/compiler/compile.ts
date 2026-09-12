@@ -218,7 +218,10 @@ interface Removal {
 function removalsFor(ir: IrDocument, conventions: EffectiveConventions): Removal[] {
   const snippets = (conventions.effectiveIdioms.teardown ?? {}) as Record<string, unknown>;
   const removals: Removal[] = [];
-  for (const step of allSteps(ir)) {
+  // `ir.steps`, not `allSteps`: the holder is assigned in the loop over `ir.steps` further down,
+  // so walking setup here emitted an afterEach guarded by a variable nothing ever assigns. The
+  // two loops now agree by construction, and the linter refuses a capture in setup outright.
+  for (const step of ir.steps) {
     const idFrom = step.undo?.idFrom;
     const name = step.callRepoHelper?.name;
     if (!idFrom || !name) continue;

@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import {
   FactsError,
-  cacheKey,
   parsePayload,
   rankRows,
   readFacts,
@@ -23,7 +22,9 @@ function node(over: Partial<RawNode> & Pick<RawNode, "i" | "parent" | "tag">): R
 }
 
 const DETAIL_NODES: RawNode[] = [
-  node({ i: 0, parent: -1, tag: "c8y-event-details", text: "c8y_LocationUpdatelat 52.534925" }),
+  // Own text, which is what the browser half reports: a wrapper whose children carry all the
+  // text has none of its own.
+  node({ i: 0, parent: -1, tag: "c8y-event-details", text: "" }),
   node({
     i: 1,
     parent: 0,
@@ -185,16 +186,6 @@ describe("readFacts", () => {
     const facts = readFacts("/nowhere/at/all", { runId: "r1", tenantUrl: "https://t" });
 
     expect(facts.surfaces).toEqual([]);
-  });
-});
-
-describe("cacheKey", () => {
-  it("keys per entry on tenant, application version and the establishing prefix", () => {
-    const base = { tenantUrl: "https://t", appVersion: "1020", establishingPrefix: "a>b" };
-
-    expect(cacheKey(base)).toBe(cacheKey({ ...base }));
-    expect(cacheKey(base)).not.toBe(cacheKey({ ...base, appVersion: "1021" }));
-    expect(cacheKey(base)).not.toBe(cacheKey({ ...base, establishingPrefix: "a>c" }));
   });
 });
 

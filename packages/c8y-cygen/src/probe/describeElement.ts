@@ -65,17 +65,17 @@ export function attrsOf(el: ElementLike): RowAttrs {
 }
 
 /**
- * The element's own visible text, not its subtree's. A wrapper carrying the whole panel's text
- * would match every `contains` and make the ladder's uniqueness measurement meaningless.
+ * The element's own visible text, normalised and capped. A wrapper carrying the whole panel's
+ * text would match every `contains` and make the ladder's uniqueness measurement meaningless.
+ *
+ * `textContent` here is the element's OWN text, not its subtree's - the browser half reads it
+ * off the direct text children, which is the only place it can be read exactly. This used to
+ * subtract each child's text from the parent's instead, and that could not work: the browser
+ * truncated parent and child independently at 200 characters, so on any large subtree neither
+ * string contained the other and the subtraction silently did nothing.
  */
 export function ownTextOf(el: ElementLike): string {
-  const flatten = (t: string | null): string => (t ?? "").replace(/\s+/g, " ").trim();
-  let rest = flatten(el.textContent);
-  for (let i = 0; i < el.children.length; i++) {
-    const childText = flatten(el.children.item(i)?.textContent ?? null);
-    if (childText) rest = rest.replace(childText, " ");
-  }
-  return rest.replace(/\s+/g, " ").trim().slice(0, MAX_TEXT);
+  return (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_TEXT);
 }
 
 const isCustomTag = (t: string): boolean =>

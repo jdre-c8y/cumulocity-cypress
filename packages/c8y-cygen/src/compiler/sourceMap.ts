@@ -26,7 +26,11 @@ export interface SourceMapEntry {
 
 export interface SourceMap {
   specPath: string;
-  /** Of the emitted file, so a stale map is caught rather than trusted. */
+  /**
+   * Of the emitted file, recorded in `sourcemap.json` beside the run. Recorded, not checked:
+   * the map is rebuilt from the file every time it is used, so there is nothing here to catch.
+   * It said "so a stale map is caught rather than trusted" beside a checker nothing called.
+   */
   contentHash: string;
   entries: SourceMapEntry[];
   /**
@@ -51,6 +55,19 @@ export interface EmittedStatement {
 }
 
 const strip = (line: string): string => line.replace(/[\s'"`]/g, "");
+
+/**
+ * Where the last statement's range may run to. Not the end of the file: the closing braces of
+ * the `it`, the `describe` and any `.then` belong to no statement, and a range that swallows
+ * them credits the last step with every assertion emitted after it. `stepAtLine` needs no help
+ * from the extra span - it already falls back to the nearest preceding entry - but axis B reads
+ * these ranges to decide which outcome a `.should(` belongs to.
+ */
+function lastMeaningfulLine(lines: string[]): number {
+  let i = lines.length - 1;
+  while (i > 0 && /^[\s)}\];,]*$/.test(lines[i] as string)) i--;
+  return i;
+}
 
 /**
  * Anchors the statements against the *formatted* file.
@@ -96,7 +113,7 @@ export function buildSourceMap(
       unanchored.push((statements[i] as EmittedStatement).stepId);
       continue;
     }
-    let end = lines.length - 1;
+    let end = lastMeaningfulLine(lines);
     for (let j = i + 1; j < statements.length; j++) {
       const next = starts[j] as number;
       if (next >= 0) {
@@ -122,9 +139,4 @@ export function stepAtLine(map: SourceMap, line: number): SourceMapEntry | undef
   if (containing) return containing;
   const preceding = map.entries.filter((e) => e.fromLine <= line);
   return preceding[preceding.length - 1];
-}
-
-/** True when the file on disk is no longer the file this map was built from. */
-export function isStale(map: SourceMap, currentContent: string): boolean {
-  return hashContent(currentContent) !== map.contentHash;
 }

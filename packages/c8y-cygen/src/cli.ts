@@ -20,7 +20,7 @@ import { loadConventions, resolveForSpecPath } from "./conventions/loadConventio
 import { parseScenarioContract } from "./contract/scenarioContract.js";
 import { ModuleApiCypressRunner } from "./cypress/cypressDriver.js";
 import { formatReport, runScenario } from "./run/runScenario.js";
-import { WorkingArea, ensureIgnored, specPathForContract } from "./workarea/workingArea.js";
+import { ensureIgnored, specPathForContract } from "./workarea/workingArea.js";
 
 function newRunId(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
@@ -64,12 +64,12 @@ async function main(): Promise<void> {
         const index = path.join(out, `${mined.repo}.reach.index.json`);
         fs.writeFileSync(index, JSON.stringify(mineReachIndex(argv.repo), null, 2));
 
-        const area = new WorkingArea(argv.repo, "scout");
-        area.prepare();
-        const probe = area.writeProbeSpec(
-          "enumerate-commands",
-          registryProbeSpec(path.join(out, "commands.json"))
-        );
+        // Beside the other two scout outputs, and deliberately NOT in the working area's probe
+        // directory: a run throws every probe spec there away when it finishes, so any `run`
+        // between `scout` and running this deleted it - and a probe spec left in that directory
+        // would be picked up by the next run's probe pattern besides.
+        const probe = path.join(out, "enumerate-commands.cy.ts");
+        fs.writeFileSync(probe, registryProbeSpec(path.join(out, "commands.json")));
 
         process.stdout.write(
           [

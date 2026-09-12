@@ -23,7 +23,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { mayWrite, withHeader, type WriteVerdict } from "./provenance.js";
+import { mayWrite } from "./provenance.js";
 
 export class WorkingAreaError extends Error {
   constructor(message: string) {
@@ -112,18 +112,33 @@ export class WorkingArea {
    */
   acquireLock(): LockInfo {
     fs.mkdirSync(this.root, { recursive: true });
+    const lock: LockInfo = {
+      runId: this.runId,
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+    };
+    const body = JSON.stringify(lock, null, 2);
+
+    // `wx` is the point: create-or-fail in one syscall. Reading first and writing second let two
+    // runs started milliseconds apart both find no lock, both write one, and both proceed - and
+    // with fixed literal entity names in the house conventions that is a collision on the tenant
+    // rather than a race nobody would notice.
+    try {
+      fs.writeFileSync(this.lockPath, body, { flag: "wx" });
+      return lock;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    }
+
     const existing = this.readLock();
     if (existing && existing.pid !== process.pid && isAlive(existing.pid)) {
       throw new WorkingAreaError(
         `Another c8y-cygen run holds the lock in ${this.targetRepo}: run ${existing.runId}, pid ${existing.pid}, started ${existing.startedAt}.`
       );
     }
-    const lock: LockInfo = {
-      runId: this.runId,
-      pid: process.pid,
-      startedAt: new Date().toISOString(),
-    };
-    fs.writeFileSync(this.lockPath, JSON.stringify(lock, null, 2));
+    // Taking over a stale lock is still read-then-write, and stays so: the window only matters
+    // when the holder is already dead, and crash recovery is worth more than closing it.
+    fs.writeFileSync(this.lockPath, body);
     return lock;
   }
 
@@ -187,36 +202,6 @@ export function specPathForContract(contractPath: string, suffix = ".cy.ts"): st
     );
   }
   return path.join(dir, `${base}${suffix}`);
-}
-
-export interface SpecWriteResult {
-  written: boolean;
-  path: string;
-  verdict: WriteVerdict;
-}
-
-/**
- * The candidate spec is written at its final path from the first iteration.
- *
- * It cannot be staged elsewhere and promoted: a third of the host repo's specs import
- * relatively, so a spec compiled for `cypress/e2e/platformTeam/settings/` does not run from the
- * working area - and rewriting imports on promotion means the file you verified is not the file
- * you ship, which is the thing the one-IR design exists to avoid.
- */
-export function writeSpec(
-  absoluteSpecPath: string,
-  body: string,
-  provenance: { toolVersion: string; contractPath: string; notGreen?: boolean }
-): SpecWriteResult {
-  const existing = fs.existsSync(absoluteSpecPath)
-    ? fs.readFileSync(absoluteSpecPath, "utf8")
-    : null;
-  const verdict = mayWrite(existing);
-  if (!verdict.allowed) return { written: false, path: absoluteSpecPath, verdict };
-
-  fs.mkdirSync(path.dirname(absoluteSpecPath), { recursive: true });
-  fs.writeFileSync(absoluteSpecPath, withHeader(provenance, body));
-  return { written: true, path: absoluteSpecPath, verdict };
 }
 
 /**

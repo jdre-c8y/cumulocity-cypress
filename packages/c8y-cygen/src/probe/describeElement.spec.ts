@@ -30,10 +30,9 @@ function build(spec: FakeSpec, parent: ElementLike | null = null): ElementLike {
   };
   for (const child of spec.children ?? []) children.push(build(child, el));
   Object.defineProperty(el.children, "length", { get: () => children.length });
-  Object.defineProperty(el, "textContent", {
-    get: () =>
-      (spec.text ?? "") + children.map((c) => c.textContent ?? "").join(""),
-  });
+  // Own text, matching what the browser half reports: its direct text children and nothing its
+  // descendants carry. It used to be the whole subtree, which is what `ownTextOf` had to undo.
+  Object.defineProperty(el, "textContent", { get: () => spec.text ?? "" });
   return el;
 }
 
@@ -74,6 +73,23 @@ describe("describeElement", () => {
 
     expect(ownTextOf(wrapper)).toBe("");
     expect(ownTextOf(wrapper.children.item(0) as ElementLike)).toBe("lat 52.534925");
+  });
+
+  it("survives a subtree far larger than the payload's own cap", () => {
+    // The old reading subtracted each child's text from the parent's, and the browser had cut
+    // both at 200 characters - so neither contained the other, nothing was subtracted, and a
+    // wrapper came back carrying the whole panel.
+    const long = "x".repeat(500);
+    const wrapper = build({ tag: "div", children: [{ tag: "span", text: long }] });
+
+    expect(ownTextOf(wrapper)).toBe("");
+  });
+
+  it("normalises whitespace and caps what it returns", () => {
+    expect(ownTextOf(build({ tag: "span", text: "  Location   update \n " }))).toBe(
+      "Location update"
+    );
+    expect(ownTextOf(build({ tag: "span", text: "y".repeat(300) }))).toHaveLength(80);
   });
 
   it("lists ancestors root first, keeping a custom tag's own text and dropping a div's", () => {
