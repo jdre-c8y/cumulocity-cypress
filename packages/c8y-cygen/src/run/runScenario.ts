@@ -31,8 +31,14 @@ import { allSteps, isProvisional, targetOf, type IrDocument } from "../ir/types.
 import { readFacts } from "../probe/readFacts.js";
 import type { FactsDocument } from "../facts/types.js";
 import { score, formatScore, type Score } from "../scorer/scorer.js";
-import { assemblePrompt, readHouseRules } from "../agent/promptAssembly.js";
-import { parseIrReply, ModelError, type CallsModel } from "../agent/callsModel.js";
+import { assemblePrompt, readHouseRules, type HealTurn } from "../agent/promptAssembly.js";
+import {
+  assistRequestIn,
+  parseIrReply,
+  ModelError,
+  type CallsModel,
+} from "../agent/callsModel.js";
+import { resolvesToSameSelector, rungFor, selectorAt } from "./healLadder.js";
 import { readPackageAsset } from "../support/assets.js";
 import { WorkingArea, discardSpec, specPathForContract } from "../workarea/workingArea.js";
 import {
@@ -73,7 +79,11 @@ export type StopCondition =
   | "green"
   | "no-spec-produced"
   /** The output path is not ours to write: a human wrote or edited the file there. */
-  | "spec-path-not-ours";
+  | "spec-path-not-ours"
+  /** The ladder has a patch and a re-probe. A third spec failure has nowhere left to go. */
+  | "heal-exhausted"
+  /** Ticket 11 Q11(c): one rejected diff is re-prompted, a second stops the run. */
+  | "heal-rejected-twice";
 
 export interface RunReport {
   runId: string;
@@ -216,6 +226,18 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
     // It must not govern the probe-to-spec transition, where deleting the collect steps and
     // re-pointing every outcome at a real assertion is the whole point of the iteration.
     let previousSpecFailed = false;
+    // The heal ladder's state. The failure counter is per spec run, never per step: Cypress
+    // stops an it() at its first failure, so one run yields at most one diagnostic.
+    let specFailures = 0;
+    let rejectionsSinceFailure = 0;
+    let failedSelector: string | null = null;
+    let failingStepId: string | null = null;
+    let failingStepPath: string | null = null;
+    // Whether a probe has run since the last spec failure. Q15(b) is a statement about what a
+    // re-probe observed, so without this the rule fires on runs where no re-probe happened and
+    // the intervention tells a human something that did not occur.
+    let probedSinceFailure = false;
+    let heal: HealTurn | undefined;
     const interventions: string[] = [];
     const notes: string[] = [];
     const history: PatchHistoryEntry[] = [];
@@ -240,6 +262,7 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
         ...(lastDiagnostic ? { lastDiagnostic } : {}),
         progressLine: budget.progressLine(covered, contract.outcomes.length),
         effectiveStyle,
+        ...(heal ? { heal } : {}),
         ...(options.styleNote ? { styleNote: options.styleNote } : {}),
       });
 
@@ -258,9 +281,9 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
         modelTurns: 1,
       };
 
-      let ir: IrDocument;
+      let parsed: unknown;
       try {
-        ir = parseIrReply(reply.text) as IrDocument;
+        parsed = parseIrReply(reply.text);
       } catch (e) {
         if (!(e instanceof ModelError)) throw e;
         attemptLog.append({
@@ -276,6 +299,31 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
         continue;
       }
 
+      // Ticket 11 Q12(a): the model may ask for a human instead of authoring, which fires the
+      // seventh trip condition with no wasted turn. The tool names the condition - a model
+      // naming its own stop condition is a model grading its own work.
+      const asked = assistRequestIn(parsed);
+      if (asked) {
+        // One condition, named here rather than read off the reply. `budget-exhausted` and
+        // `zero-dom-steps` send a human to do specific things; a model that picks its own
+        // stop condition is a model grading its own work.
+        const condition: TripCondition = "app-contradicts-scenario";
+        attemptLog.append({
+          ...base,
+          mode: previousIr ? modeFor(previousIr) : "probe",
+          ir: previousIr ?? ({} as IrDocument),
+          changed: [],
+          verdict: "accepted",
+          run: "none",
+          stopCondition: condition,
+        });
+        stop = condition;
+        interventions.push(`${condition}: ${asked.why}`);
+        log(`iteration ${iteration}: the model asked for a human - ${asked.why}`);
+        break;
+      }
+
+      const ir = parsed as IrDocument;
       const changed = previousIr ? diffIr(previousIr, ir) : [];
       if (previousIr && previousSpecFailed) {
         const patch = checkPatch(previousIr, ir, history);
@@ -290,6 +338,20 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
             run: "none",
           });
           log(`iteration ${iteration}: diff rejected - ${patch.reason}`);
+          // A rejection costs a model turn and never a Cypress run, which is the resource the
+          // budget meters - so nothing else stops a model retrying a frozen edit until the
+          // turn cap catches it. One re-prompt carries the reason; a second asks a human.
+          rejectionsSinceFailure += 1;
+          if (rejectionsSinceFailure > 1) {
+            stop = "heal-rejected-twice";
+            interventions.push(
+              `the same failure produced two rejected diffs: ${patch.reason ?? "no reason given"}`
+            );
+            break;
+          }
+          if (heal) {
+            heal = { ...heal, ...(patch.reason ? { rejectedReason: patch.reason } : {}) };
+          }
           continue;
         }
       }
@@ -338,6 +400,37 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
         continue;
       }
 
+      // Ticket 11 Q15(b). The re-probe has just re-observed the element and the ladder landed
+      // back on the selector that failed, so the failure was never a selector problem and
+      // re-running would fail identically with most of the budget gone. The question this
+      // hands a human is the strongest one any earlier run could have produced: the selector
+      // is right, the probe just confirmed it, and the assertion still fails.
+      if (
+        mode === "spec" &&
+        specFailures >= 2 &&
+        probedSinceFailure &&
+        resolvesToSameSelector(ir, failingStepId, failedSelector)
+      ) {
+        attemptLog.append({
+          ...base,
+          mode,
+          ir,
+          changed,
+          verdict: "accepted",
+          run: "none",
+          stopCondition: "app-contradicts-scenario",
+        });
+        stop = "app-contradicts-scenario";
+        interventions.push(
+          `app-contradicts-scenario: the re-probe resolved ${failingStepPath} back to ` +
+            `${failedSelector}, the selector that just failed. The element is there and the ` +
+            `selector is right, so the scenario and the application disagree about something else.`
+        );
+        previousIr = ir;
+        log(`iteration ${iteration}: the re-probe confirmed the selector that failed; no run spent`);
+        break;
+      }
+
       const runStop = budget.mayRun(mode);
       if (runStop) {
         attemptLog.append({
@@ -358,6 +451,10 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
       const compiled = compile({ ir, mode, conventions, itTags: contract.tags });
 
       previousSpecFailed = false;
+      // The rung is spent. Carrying it into the next turn tells a model that has just
+      // re-probed to re-probe again, which loops until the probe cap ends the run - and
+      // carries a stale "this is your last attempt" with it.
+      heal = undefined;
 
       if (mode === "probe") {
         // The probe runtime is copied in and imported relatively. It is never installed in the
@@ -403,6 +500,7 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
         });
         history.push({ changed, passed: result.pass });
         previousIr = ir;
+        probedSinceFailure = true;
         log(
           `iteration ${iteration}: probe run, ${facts.surfaces.length} surface(s), ${facts.surfaces.reduce((n, s) => n + s.rows.length, 0)} row(s)`
         );
@@ -450,10 +548,13 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
 
       const failure = result.testFailures[0];
       const failingLine = failure?.location?.line;
-      const failingStep =
+      // The path is what a human reads; the id is what survives an insertion, and both rungs
+      // invite the model to insert a step.
+      const failingEntry =
         failingLine !== undefined && lastSourceMap
-          ? stepAtLine(lastSourceMap, failingLine)?.stepPath
+          ? stepAtLine(lastSourceMap, failingLine)
           : undefined;
+      const failingStep = failingEntry?.stepPath;
       lastDiagnostic = failure?.errorMessage ?? result.specFailures[0]?.errorMessage;
       lastScreenshot = failure?.screenshotPath;
 
@@ -494,14 +595,31 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
       }
 
       previousSpecFailed = true;
+      specFailures += 1;
+      rejectionsSinceFailure = 0;
+      probedSinceFailure = false;
+      failingStepPath = failingStep ?? null;
+      failingStepId = failingEntry?.stepId ?? null;
+      failedSelector = selectorAt(ir, failingStepId);
+
+      const rung = rungFor(specFailures);
+      if (!rung) {
+        stop = "heal-exhausted";
+        notes.push(
+          `the spec run failed ${specFailures} times. The ladder has one patch and one ` +
+            `re-probe, and both are spent.`
+        );
+        log(`iteration ${iteration}: spec run failed again; the heal ladder is out of rungs`);
+        break;
+      }
+      heal = {
+        rung,
+        ...(failingStepPath ? { failingStepPath } : {}),
+      };
       log(
         `iteration ${iteration}: spec run failed at ${failingStep ?? "an unmapped line"}` +
-          "; the heal path is out of scope for this slice, so the run ends here"
+          `; heal rung ${rung}`
       );
-      // No patch rung and no re-probe in this slice: if the first emitted spec fails, the run
-      // ends and reports. That is the informative first number - whether the design can generate
-      // a correct spec in one pass.
-      break;
     }
 
     // Only facts survive a probe run.

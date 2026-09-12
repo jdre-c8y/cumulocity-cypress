@@ -10,6 +10,7 @@ import {
   summariseFacts,
 } from "./readFacts.js";
 import { rowsFromRawNodes, type RawNode } from "./rawNodes.js";
+import { findRow } from "../facts/types.js";
 
 function node(over: Partial<RawNode> & Pick<RawNode, "i" | "parent" | "tag">): RawNode {
   return {
@@ -301,6 +302,57 @@ describe("a scope that matched nothing", () => {
       const facts = readFacts(dir, { runId: "r1", tenantUrl: "https://t.example" });
 
       expect(summariseFacts(facts)).not.toMatch(/events-page#/);
+    });
+  });
+});
+
+describe("two collects that share a label", () => {
+  const collect = (nodes: RawNode[]) => ({
+    kind: "collect",
+    label: "event-list",
+    within: "c8y-events",
+    observedAt: "2026-09-11T20:21:00.000Z",
+    nodes,
+  });
+
+  // The scope element itself is never a row, so each fixture needs a child to carry one.
+  const OLD = [
+    node({ i: 0, parent: -1, tag: "c8y-events" }),
+    node({ i: 1, parent: 0, tag: "li", attrs: { "data-cy": "stale" } }),
+  ];
+  const NEW = [
+    node({ i: 0, parent: -1, tag: "c8y-events" }),
+    node({ i: 1, parent: 0, tag: "li", attrs: { "data-cy": "fresh" } }),
+  ];
+
+  it("do not hand out the same row id twice", () => {
+    // The re-probe rung re-collects the scope that failed, under the label the IR already
+    // uses - so this is its normal case, not an edge one.
+    withTempDir((dir) => {
+      fs.mkdirSync(path.join(dir, "probe-01"));
+      fs.mkdirSync(path.join(dir, "probe-02"));
+      fs.writeFileSync(path.join(dir, "probe-01/001-collect.json"), JSON.stringify(collect(OLD)));
+      fs.writeFileSync(path.join(dir, "probe-02/001-collect.json"), JSON.stringify(collect(NEW)));
+
+      const facts = readFacts(dir, { runId: "r1", tenantUrl: "https://t.example" });
+      const ids = facts.surfaces.flatMap((s) => s.rows.map((r) => r.id));
+
+      expect(ids).toHaveLength(new Set(ids).size);
+    });
+  });
+
+  it("keep both, because the earlier one may be a different state of the page", () => {
+    withTempDir((dir) => {
+      fs.mkdirSync(path.join(dir, "probe-01"));
+      fs.mkdirSync(path.join(dir, "probe-02"));
+      fs.writeFileSync(path.join(dir, "probe-01/001-collect.json"), JSON.stringify(collect(OLD)));
+      fs.writeFileSync(path.join(dir, "probe-02/001-collect.json"), JSON.stringify(collect(NEW)));
+
+      const facts = readFacts(dir, { runId: "r1", tenantUrl: "https://t.example" });
+
+      expect(facts.surfaces.map((s) => s.label)).toEqual(["event-list", "event-list~2"]);
+      expect(findRow(facts, "event-list#1")?.attrs.dataCy).toBe("stale");
+      expect(findRow(facts, "event-list~2#1")?.attrs.dataCy).toBe("fresh");
     });
   });
 });

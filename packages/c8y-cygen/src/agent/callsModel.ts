@@ -52,3 +52,28 @@ export function parseIrReply(text: string): unknown {
     throw new ModelError(`the fenced block is not valid JSON - ${(e as Error).message}`);
   }
 }
+
+/**
+ * The model asking for a human instead of authoring an IR. Ticket 11 Q11(c).
+ *
+ * It arrives inside the same single fenced block an IR does, so the one-block rule does not
+ * fork into two reply shapes and a malformed assist is a spent turn like any other malformed
+ * reply.
+ *
+ * It carries only the question. The tool names the trip condition, because a model choosing its
+ * own stop condition is a model grading its own work - and two of the seven send a human off to
+ * edit a named file, which is not a trip a reply should be able to declare.
+ */
+export interface AssistRequest {
+  /** What a human has to decide. Without it there is no question, so there is no request. */
+  why: string;
+}
+
+export function assistRequestIn(doc: unknown): AssistRequest | null {
+  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) return null;
+  const assist = (doc as { assist?: unknown }).assist;
+  if (typeof assist !== "object" || assist === null || Array.isArray(assist)) return null;
+  const { why } = assist as { why?: unknown };
+  if (typeof why !== "string" || why.trim() === "") return null;
+  return { why: why.trim() };
+}

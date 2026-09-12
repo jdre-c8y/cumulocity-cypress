@@ -32,6 +32,7 @@ import type { ScenarioContract } from "../contract/scenarioContract.js";
 import type { FactsDocument } from "../facts/types.js";
 import type { LintResult } from "../ir/lintIr.js";
 import type { IrDocument } from "../ir/types.js";
+import type { HealRung } from "../run/healLadder.js";
 
 export interface PromptBlock {
   text: string;
@@ -49,6 +50,17 @@ export interface AssembledPrompt {
   prefixHash: string;
 }
 
+/**
+ * What a heal turn tells the model. Ticket 11 fixed the rungs; this carries which one is in
+ * force, the step the source map named, and the reason a previous diff was refused.
+ */
+export interface HealTurn {
+  rung: HealRung;
+  failingStepPath?: string;
+  /** Set on the one re-prompt a rejected diff gets before the run stops and asks a human. */
+  rejectedReason?: string;
+}
+
 export interface PromptInput {
   contract: ScenarioContract;
   conventions: EffectiveConventions;
@@ -63,6 +75,77 @@ export interface PromptInput {
   /** The style the run will actually generate in, which may not be the contract's. */
   effectiveStyle: "integration" | "mocked";
   styleNote?: string;
+  /** Absent on a generation turn. Present only after a spec run has failed. */
+  heal?: HealTurn;
+}
+
+/**
+ * The rung's rules, stated where the model reads them rather than left to a house-rules file
+ * it may not have. The frozen list is repeated here on purpose: healing is authoring under
+ * pressure to turn a red thing green, and the cheapest available fix is always to assert less.
+ */
+function healBlock(heal: HealTurn): string {
+  const lines = [
+    "# The spec run failed, and this is a heal turn",
+    "",
+    heal.failingStepPath
+      ? `The failure maps back to \`${heal.failingStepPath}\`.`
+      : "The failure mapped back to no step, so the source map could not name one. Read the diagnostic.",
+    "",
+  ];
+
+  if (heal.rung === "patch") {
+    lines.push(
+      "Rung 1 of 2: PATCH. No new observation is available, so you may only re-arrange facts a",
+      "probe has already collected.",
+      "",
+      "You may:",
+      "  - re-point this step, or one upstream of it, at a different candidate row the probe",
+      "    already observed - moving `fromRow`, and the `resolved` the ladder derives from it",
+      "  - change a `within` scope or an index",
+      "  - insert a step, including a settle before the failing one",
+      "",
+      "You may not:",
+      "  - author a selector. You never author a selector, and here least of all: name a row",
+      "    and the ladder derives the selector from it. A diff that writes one is rejected.",
+      "  - change what a step asserts - extractor, comparator, operand, cardinality, outcome",
+      "    ids - or delete a step. Those are frozen on a heal turn. The cheapest way to turn a",
+      "    red thing green is to assert less, and that is the one thing this tool must not do.",
+      "",
+      "If no row the probe observed fits, do not guess. Put the target back to `provisional`",
+      "and the next run re-observes it. That spends a probe run instead of a spec run, which is",
+      "the cheaper mistake."
+    );
+  } else {
+    lines.push(
+      "Rung 2 of 2: RE-PROBE. The patch did not work, so the facts on hand are not enough, and",
+      "new observation is the only legal way to learn anything new.",
+      "",
+      "Put the failing step's target back to `provisional`, and add collect points at that step",
+      "and after it. The run compiles in probe mode, re-observes, and the ladder resolves the",
+      "selector again. Leave every assertion exactly as it is."
+    );
+  }
+
+  if (heal.rejectedReason) {
+    lines.push(
+      "",
+      `Your last diff was rejected: ${heal.rejectedReason}`,
+      "",
+      "This is your last attempt at this failure. One rejected diff is re-prompted; a second",
+      "stops the run and asks a human."
+    );
+  }
+
+  lines.push(
+    "",
+    "If the application genuinely contradicts the scenario - the page shows one thing and the",
+    "contract asks for another - do not patch around it. Reply with this instead of an IR:",
+    "",
+    '    {"assist": {"why": "<what a human must decide>"}}'
+  );
+
+  return lines.join("\n");
 }
 
 /**
@@ -171,6 +254,10 @@ export function assemblePrompt(input: PromptInput): AssembledPrompt {
   }
   if (input.lastDiagnostic) {
     tail.push({ text: `# The last Cypress failure\n\n\`\`\`\n${input.lastDiagnostic}\n\`\`\`` });
+  }
+  // Straight after the failure, so the model reads what broke and then what it may do about it.
+  if (input.heal) {
+    tail.push({ text: healBlock(input.heal) });
   }
   tail.push({
     text: `# What earlier iterations of this run tried\n\n${summariseAttempts(input.attempts)}`,

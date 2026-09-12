@@ -1,4 +1,4 @@
-import { ModelError, parseIrReply } from "./callsModel.js";
+import { ModelError, assistRequestIn, parseIrReply } from "./callsModel.js";
 import { assemblePrompt, conventionsForModel, type PromptInput } from "./promptAssembly.js";
 import { b0Contract, b0Conventions, b0Facts, b0Ir } from "../testing/b0.js";
 
@@ -136,3 +136,91 @@ describe("parseIrReply", () => {
     expect(() => parseIrReply("```json\n{version: 1,}\n```")).toThrow(/not valid JSON/);
   });
 });
+
+describe("an assist request in place of an IR", () => {
+  // Ticket 11 Q11(c): the model may ask for a human instead of authoring. It arrives in the
+  // same single fenced block an IR does, so the one-block rule does not fork into two shapes.
+  const ask = (body: string): unknown => parseIrReply("```json\n" + body + "\n```");
+
+  it("is recognised, and carries the reason the human has to read", () => {
+    expect(assistRequestIn(ask('{"assist":{"why":"the page shows 1 row, the scenario says 3"}}')))
+      .toEqual({ why: "the page shows 1 row, the scenario says 3" });
+  });
+
+  it("carries only the question: the tool names the trip condition, not the model", () => {
+    // Two of the seven conditions send a human off to edit a named file. A reply must not be
+    // able to declare one, and `budget-exhausted` must not be claimable while budget remains.
+    expect(
+      assistRequestIn(ask('{"assist":{"condition":"budget-exhausted","why":"the tab never renders"}}'))
+    ).toEqual({ why: "the tab never renders" });
+  });
+
+  it("is not an IR, and an IR is not one of these", () => {
+    expect(assistRequestIn(ask('{"version":1,"steps":[]}'))).toBeNull();
+  });
+
+  it("needs a reason, because the whole point is the question a human answers", () => {
+    expect(assistRequestIn(ask('{"assist":{"condition":"app-contradicts-scenario"}}'))).toBeNull();
+    expect(assistRequestIn(ask('{"assist":{"why":"   "}}'))).toBeNull();
+  });
+
+  it("is not tripped by anything else that happens to parse", () => {
+    for (const doc of [null, 42, "assist", [], { assist: null }, { assist: "please" }]) {
+      expect(assistRequestIn(doc)).toBeNull();
+    }
+  });
+});
+
+describe("the heal turn's instructions", () => {
+  const tailOf = (over: Partial<PromptInput>): string =>
+    assemblePrompt(input(over)).tail.map((b) => b.text).join("\n\n");
+
+  it("says nothing at all when the run is not healing", () => {
+    expect(tailOf({})).not.toMatch(/heal|rung/i);
+  });
+
+  it("names the step the failure mapped to, so the model is not re-reading a stack trace", () => {
+    const text = tailOf({ heal: { rung: "patch", failingStepPath: "steps[7]" } });
+
+    expect(text).toContain("steps[7]");
+  });
+
+  it("on rung 1, offers the re-point and forbids authoring a selector", () => {
+    const text = tailOf({ heal: { rung: "patch", failingStepPath: "steps[7]" } });
+
+    expect(text).toMatch(/re-point/i);
+    expect(text).toMatch(/never author a selector|do not write a selector/i);
+  });
+
+  it("on rung 1, offers the escape hatch when no observed row fits", () => {
+    // Ticket 11 Q10(b): skip the patch and re-probe at once rather than burning a spec run
+    // guessing. B2's render branch means the first probe may never have seen the row at all.
+    const text = tailOf({ heal: { rung: "patch" } });
+
+    expect(text).toMatch(/provisional/);
+  });
+
+  it("on rung 2, asks for the demotion and for collect points at the failure", () => {
+    const text = tailOf({ heal: { rung: "re-probe", failingStepPath: "steps[7]" } });
+
+    expect(text).toMatch(/provisional/);
+    expect(text).toMatch(/collect/i);
+  });
+
+  it("re-prompts a rejected diff with the reason it was rejected", () => {
+    const text = tailOf({
+      heal: { rung: "patch", rejectedReason: "steps[7].assert.operand is a frozen field" },
+    });
+
+    expect(text).toContain("steps[7].assert.operand is a frozen field");
+    // One re-prompt, then assist. The model should know the next one is not free.
+    expect(text).toMatch(/last attempt|only one/i);
+  });
+
+  it("offers the assist reply, so a contradiction does not become a guess", () => {
+    const text = tailOf({ heal: { rung: "patch" } });
+
+    expect(text).toContain('"assist"');
+  });
+});
+

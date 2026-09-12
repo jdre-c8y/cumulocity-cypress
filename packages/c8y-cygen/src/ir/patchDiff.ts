@@ -1,16 +1,16 @@
 /**
  * The frozen/free split, and the oscillation check.
  *
- * The heal path that consumes this is out of scope for the B0 slice. The rule is here anyway,
- * with corpus cases, because it must exist before the path that needs it rather than arrive
- * after it: healing is authoring under pressure to turn a red thing green, and the cheapest
- * available fix to "declared 3, observed 1" is to declare 1 - which lints clean, passes, and is
- * exactly the fabrication the whole anti-gaming apparatus exists to stop.
+ * The rule arrived before the path that needs it, which is what ticket 11 required: healing is
+ * authoring under pressure to turn a red thing green, and the cheapest available fix to
+ * "declared 3, observed 1" is to declare 1 - which lints clean, passes, and is exactly the
+ * fabrication the whole anti-gaming apparatus exists to stop. `run/healLadder.ts` is the path
+ * that consumes it.
  *
  * The changed field paths are computed from the diff rather than claimed, which is what a later
  * stateless session needs in order to see an oscillation it did not take part in.
  */
-import { allSteps, type IrDocument, type IrStep } from "./types.js";
+import { allSteps, verbsOf, type IrDocument, type IrStep } from "./types.js";
 
 export interface FieldChange {
   path: string;
@@ -70,32 +70,71 @@ function fieldMap(ir: IrDocument): Map<string, unknown> {
   return out;
 }
 
+/**
+ * Splits `steps.<id>.<field>` when the id may itself contain dots.
+ *
+ * The schema puts no pattern on `id`, so splitting at the first dot turns `check.time` into the
+ * step id `check`, which matches nothing - and a step whose id matches nothing has no frozen
+ * fields at all. Matching against the ids that actually exist, longest first, closes that.
+ */
+function splitStepPath(rest: string, ids: Set<string>): { stepId: string; field: string } {
+  let best = "";
+  for (const id of ids) {
+    if ((rest === id || rest.startsWith(`${id}.`)) && id.length > best.length) best = id;
+  }
+  if (best === "") {
+    const dot = rest.indexOf(".");
+    return dot === -1 ? { stepId: rest, field: "" } : { stepId: rest.slice(0, dot), field: rest.slice(dot + 1) };
+  }
+  return { stepId: best, field: rest.slice(best.length + 1) };
+}
+
 function isFrozenPath(path: string, before: IrDocument, after: IrDocument): boolean {
   if (path.startsWith("outcomes.")) return true;
   if (!path.startsWith("steps.")) return false;
 
+  const beforeSteps = stepsById(before);
+  const afterSteps = stepsById(after);
+  const ids = new Set([...beforeSteps.keys(), ...afterSteps.keys()]);
+  const { stepId } = splitStepPath(path.slice("steps.".length), ids);
   const rest = path.slice("steps.".length);
-  const dot = rest.indexOf(".");
-  const stepId = dot === -1 ? rest : rest.slice(0, dot);
-  const field = dot === -1 ? "" : rest.slice(dot + 1);
+  const field = rest === stepId ? "" : rest.slice(stepId.length + 1);
 
   // Deleting a step is frozen; adding one is free.
-  const existedBefore = stepsById(before).has(stepId);
-  const existsAfter = stepsById(after).has(stepId);
-  if (existedBefore && !existsAfter) return true;
-  if (!existedBefore) return false;
+  const wasThere = beforeSteps.get(stepId);
+  const stillThere = afterSteps.get(stepId);
+  if (wasThere && !stillThere) return true;
+  if (!wasThere) return false;
 
-  // An existing step's verb may not change.
-  const verbChanged = field === "" || /^(visit|click|settle|assert|callRepoHelper|request|collect)$/.test(field);
-  if (verbChanged && !field.includes(".")) return true;
+  // An existing step's verb may not change. Checked on the step rather than on the path,
+  // because `flatten` always descends into the verb object - so no path is ever a bare
+  // `click` or `request`, and a guard written against those never fires. Swapping a blessed
+  // helper for a raw request is the edit this stops.
+  if (stillThere) {
+    const wasVerbs = verbsOf(wasThere).join(",");
+    const nowVerbs = verbsOf(stillThere).join(",");
+    if (wasVerbs !== nowVerbs) return true;
+  }
 
   return FROZEN_STEP_FIELDS.some((f) => field === f || field.startsWith(`${f}.`) || field.startsWith(`${f}[`));
 }
 
-/** A var reachable from a frozen field is frozen too, or the operand escapes through `vars`. */
+/**
+ * A var reachable from a frozen field is frozen too, or the operand escapes through `vars`.
+ *
+ * Both ways of reaching one count. `{ ref: name }` is the obvious one; `"lat ${expectedLat}"`
+ * is the one that slips through, because it is a plain string and the operand it carries is
+ * rewritable without any frozen path appearing in the diff.
+ */
+const INTERPOLATION = /\$\{\s*([A-Za-z_$][\w$]*)\s*\}/g;
+
 function frozenVars(ir: IrDocument): Set<string> {
   const out = new Set<string>();
   const scan = (value: unknown): void => {
+    if (typeof value === "string") {
+      for (const m of value.matchAll(INTERPOLATION)) out.add(m[1] as string);
+      return;
+    }
     if (value === null || typeof value !== "object") return;
     if ("ref" in (value as Record<string, unknown>)) {
       out.add(String((value as { ref: unknown }).ref));

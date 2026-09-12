@@ -147,3 +147,72 @@ describe("the frozen/free split", () => {
     expect(verdict.reason).toMatch(/already tried and failed/);
   });
 });
+
+describe("the three ways a frozen field was reachable anyway", () => {
+  it("freezes a var the operand reaches by interpolation, not only by ref", () => {
+    // `{ ref: name }` was followed; `"lat ${expectedLat}"` was not - and it is a plain string,
+    // so rewriting the var it carries puts no frozen path in the diff at all.
+    const before = patched((ir) => {
+      ir.vars = { ...ir.vars, expectedLat: "52.534925" };
+      const step = ir.steps.find((x) => x.id === "check-latitude") as IrStep;
+      step.assert!.operand = "lat ${expectedLat}";
+    });
+    const after = patched((ir) => {
+      ir.vars = { ...ir.vars, expectedLat: "0" };
+      const step = ir.steps.find((x) => x.id === "check-latitude") as IrStep;
+      step.assert!.operand = "lat ${expectedLat}";
+    });
+
+    const verdict = checkPatch(before, after);
+
+    expect(verdict.accepted).toBe(false);
+    expect(verdict.reason).toContain("vars.expectedLat");
+  });
+
+  it("freezes a step's verb, which no path was ever shaped to catch", () => {
+    // `flatten` always descends into the verb object, so no diff path is ever a bare `click`
+    // or `callRepoHelper`. Swapping a blessed helper for a raw request is the edit at stake.
+    const before = b0Ir();
+    const after = patched((ir) => {
+      const step = ir.steps.find((x) => x.id === "make-device") as IrStep;
+      delete step.callRepoHelper;
+      step.request = { method: "POST", url: "/inventory/managedObjects", body: { object: {} } };
+    });
+
+    expect(checkPatch(before, after).accepted).toBe(false);
+  });
+
+  it("freezes a step whose id contains a dot, which matched nothing and so froze nothing", () => {
+    const rename = (ir: IrDocument): void => {
+      const step = ir.steps.find((x) => x.id === "check-source") as IrStep;
+      step.id = "check.source";
+    };
+    const before = patched(rename);
+    const after = patched((ir) => {
+      rename(ir);
+      const step = ir.steps.find((x) => x.id === "check.source") as IrStep;
+      step.assert!.compare = "equals";
+    });
+
+    const verdict = checkPatch(before, after);
+
+    expect(verdict.accepted).toBe(false);
+    expect(verdict.reason).toContain("frozen field");
+  });
+
+  it("still lets a dotted-id step be re-pointed, which is the whole free half", () => {
+    const rename = (ir: IrDocument): void => {
+      const step = ir.steps.find((x) => x.id === "check-source") as IrStep;
+      step.id = "check.source";
+    };
+    const before = patched(rename);
+    const after = patched((ir) => {
+      rename(ir);
+      const step = ir.steps.find((x) => x.id === "check.source") as IrStep;
+      step.assert!.target = { resolved: "cy.get('[data-cy=\"other\"]')", fromRow: "event-detail#2" };
+    });
+
+    expect(checkPatch(before, after).accepted).toBe(true);
+  });
+});
+

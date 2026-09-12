@@ -77,15 +77,26 @@ class ScriptedModel implements CallsModel {
 class ScriptedCypress implements RunsCypress {
   readonly requests: RunRequest[] = [];
 
+  private specRunsSoFar = 0;
+
   constructor(
-    private readonly specRunPasses: boolean,
+    /** One verdict per spec run; the last repeats. A heal test needs fail, then pass. */
+    private readonly specRunPasses: boolean | boolean[],
     /**
      * A repo-relative path the run writes as a side effect, standing in for a plugin the target
      * repo registers. `cypress-failed-log` hard-codes `cypress/logs/`, so no configuration key
      * reaches it and nothing the tool passes can redirect it.
      */
-    private readonly pluginWrites?: string
+    private readonly pluginWrites?: string,
+    /** The emitted line the failure names. Pick one no statement owns to leave it unmapped. */
+    private readonly failingLine: number = 34
   ) {}
+
+  private specRunPasses_(): boolean {
+    const index = this.specRunsSoFar++;
+    if (!Array.isArray(this.specRunPasses)) return this.specRunPasses;
+    return this.specRunPasses[Math.min(index, this.specRunPasses.length - 1)] ?? false;
+  }
 
   async run(request: RunRequest): Promise<CypressRunResult> {
     this.requests.push({ ...request });
@@ -112,7 +123,7 @@ class ScriptedCypress implements RunsCypress {
         startedAt: new Date().toISOString(),
       };
     }
-    if (this.specRunPasses) {
+    if (this.specRunPasses_()) {
       return {
         pass: true,
         testFailures: [],
@@ -131,8 +142,8 @@ class ScriptedCypress implements RunsCypress {
           title: ["Tests for device events", "Verify"],
           errorMessage:
             "AssertionError: Timed out retrying: Expected to find element\n" +
-            `    at Context.eval (webpack://ui/./${SPEC}:34:10)`,
-          location: { file: SPEC, line: 34, column: 10 },
+            `    at Context.eval (webpack://ui/./${SPEC}:${this.failingLine}:10)`,
+          location: { file: SPEC, line: this.failingLine, column: 10 },
           screenshotPath: "/tmp/shot.png",
         },
       ],
@@ -297,7 +308,7 @@ describe("the loop, driven end to end", () => {
 });
 
 describe("when the first emitted spec fails", () => {
-  it("ends the run and reports, because there is no heal rung in this slice", async () => {
+  it("spends its heal rungs and then reports FAIL", async () => {
     const repo = makeRepo();
 
     const report = await runScenario(
@@ -305,7 +316,10 @@ describe("when the first emitted spec fails", () => {
     );
 
     expect(report.score?.verdict).toBe("FAIL");
-    expect(report.cost.specRuns).toBe(1);
+    // Green is a gate, so a healed-green run would still fail axis A - but the rungs are spent
+    // trying, which is the difference between a measurement and a shrug.
+    expect(report.cost.specRuns).toBeGreaterThan(1);
+    expect(report.stopCondition).toBe("heal-exhausted");
   });
 
   it("maps the failure back to an IR step through the source map", async () => {
@@ -550,3 +564,278 @@ describe("a run that never reaches spec mode", () => {
     expect(formatReport(report)).toContain("TRIPWIRE");
   });
 });
+
+/**
+ * A legal rung-1 patch. These tests are about the loop; what makes a *good* patch, and which
+ * fields a diff may not reach, is patchDiff.spec.ts's subject. `meta.title` is free under the
+ * frozen/free split, visible in the emitted spec, and touches no assertion.
+ */
+function retitled(suffix: string): IrDocument {
+  const ir = b0Ir();
+  return { ...ir, meta: { ...ir.meta, title: `${ir.meta.title}, ${suffix}` } };
+}
+
+const patched = (): IrDocument => retitled("healed");
+
+/** What rung 2 asks for: the failing target demoted to provisional, and a collect point at it. */
+function demoted(): IrDocument {
+  const ir = b0Ir();
+  const steps = ir.steps.map((step) =>
+    step.id === "tabs-visible"
+      ? {
+          ...step,
+          settle: { ...step.settle, target: { provisional: { tag: "c8y-tabs-outlet" } } },
+        }
+      : step
+  );
+  return {
+    ...ir,
+    steps: [
+      ...steps.slice(0, 3),
+      { id: "re-collect", collect: { label: "events-page", within: "c8y-tabs-outlet" } },
+      ...steps.slice(3),
+    ],
+  } as IrDocument;
+}
+
+/**
+ * The emitted line the `tabs-visible` settle owns. The compiler puts it at body line 32 and the
+ * provenance header adds seven, and it is the step `demoted()` demotes - so a failure here is
+ * the exact story Q15(b) is about.
+ */
+const TABS_VISIBLE_LINE = 39;
+
+const promptsOf = (model: ScriptedModel): string[] =>
+  model.requests.map((r) => r.prompt.tail.map((b) => b.text).join("\n"));
+
+describe("the heal ladder, driven end to end", () => {
+  it("patches after the first spec failure instead of ending the run", async () => {
+    const repo = makeRepo();
+    const model = new ScriptedModel([fenced(b0ProbeIr()), fenced(b0Ir()), fenced(patched())]);
+
+    const report = await runScenario(
+      options(repo, { callsModel: model, runsCypress: new ScriptedCypress([false, true]) })
+    );
+
+    expect(report.stopCondition).toBe("green");
+    // Three turns: author probe, author spec, patch. The third is the one that did not exist.
+    expect(model.requests).toHaveLength(3);
+    expect(promptsOf(model)[2]).toContain("Rung 1 of 2: PATCH");
+  });
+
+  it("tells the patch turn which step the failure mapped to", async () => {
+    const repo = makeRepo();
+    const model = new ScriptedModel([fenced(b0ProbeIr()), fenced(b0Ir()), fenced(patched())]);
+
+    await runScenario(
+      options(repo, { callsModel: model, runsCypress: new ScriptedCypress([false, true]) })
+    );
+
+    expect(promptsOf(model)[2]).toMatch(/maps back to `steps\[\d+\]`/);
+  });
+
+  it("says so plainly when the failure mapped to no step at all", async () => {
+    const repo = makeRepo();
+    const model = new ScriptedModel([fenced(b0ProbeIr()), fenced(b0Ir()), fenced(patched())]);
+
+    await runScenario(
+      options(repo, {
+        callsModel: model,
+        runsCypress: new ScriptedCypress([false, true], undefined, 1),
+      })
+    );
+
+    expect(promptsOf(model)[2]).toContain("mapped back to no step");
+  });
+
+  it("re-probes after the second failure, because facts on hand were not enough", async () => {
+    const repo = makeRepo();
+    const model = new ScriptedModel([
+      fenced(b0ProbeIr()),
+      fenced(b0Ir()),
+      fenced(patched()),
+      fenced(demoted()),
+      fenced(patched()),
+    ]);
+
+    const report = await runScenario(
+      options(repo, {
+        callsModel: model,
+        // Line 1 owns no statement, so the failure maps to no step and Q15(b) cannot fire.
+        runsCypress: new ScriptedCypress([false, false, true], undefined, 1),
+      })
+    );
+
+    expect(promptsOf(model)[3]).toContain("Rung 2 of 2: RE-PROBE");
+    expect(report.stopCondition).toBe("green");
+    // Ticket 10's pinned shape: probe, fail, patch, fail, re-probe, pass. Five, one spare.
+    expect(report.cost.totalRuns).toBe(5);
+  });
+
+  it("stops once the patch and the re-probe are both spent", async () => {
+    const repo = makeRepo();
+    const model = new ScriptedModel([
+      fenced(b0ProbeIr()),
+      fenced(b0Ir()),
+      fenced(patched()),
+      fenced(demoted()),
+      fenced(patched()),
+    ]);
+
+    const report = await runScenario(
+      options(repo, {
+        callsModel: model,
+        runsCypress: new ScriptedCypress([false, false, false], undefined, 1),
+      })
+    );
+
+    expect(report.stopCondition).toBe("heal-exhausted");
+  });
+
+  it("does not carry a spent rung into the turn after the run it asked for", async () => {
+    const repo = makeRepo();
+    const model = new ScriptedModel([
+      fenced(b0ProbeIr()),
+      fenced(b0Ir()),
+      fenced(patched()),
+      fenced(demoted()),
+      fenced(retitled("after the re-probe")),
+    ]);
+
+    await runScenario(
+      options(repo, {
+        callsModel: model,
+        runsCypress: new ScriptedCypress([false, false, true], undefined, 1),
+      })
+    );
+
+    // The model obeys. Told to re-probe when it already has, it demotes again, compiles in
+    // probe mode again, and loops until the probe cap ends the run with no spec to show.
+    expect(promptsOf(model)[3]).toContain("Rung 2 of 2: RE-PROBE");
+    expect(promptsOf(model)[4]).not.toContain("heal turn");
+  });
+
+  it("does not heal a run that never emitted a spec", async () => {
+    const repo = makeRepo();
+    const model = new ScriptedModel([fenced(b0ProbeIr())]);
+
+    await runScenario(options(repo, { callsModel: model }));
+
+    expect(promptsOf(model).every((p) => !p.includes("heal turn"))).toBe(true);
+  });
+});
+
+describe("when healing has to stop and ask a human", () => {
+  /** probe, spec fail, spec fail, re-probe, and the ladder lands back where it started. */
+  const confirmsTheSelector = (): ScriptedModel =>
+    new ScriptedModel([
+      fenced(b0ProbeIr()),
+      fenced(b0Ir()),
+      fenced(patched()),
+      fenced(demoted()),
+      fenced(b0Ir()),
+    ]);
+
+  it("fires when the re-probe resolves the selector that just failed", async () => {
+    const repo = makeRepo();
+    // Ticket 11 Q15(b): the probe just re-observed the element and the ladder landed on the
+    // same selector, so the failure was never a selector problem. Re-running proves nothing.
+    const model = confirmsTheSelector();
+
+    const report = await runScenario(
+      options(repo, {
+        callsModel: model,
+        runsCypress: new ScriptedCypress(false, undefined, TABS_VISIBLE_LINE),
+      })
+    );
+
+    expect(report.stopCondition).toBe("app-contradicts-scenario");
+    // The point of the rule is the run it does NOT spend: probe, spec, spec, probe, then stop.
+    expect(report.cost.totalRuns).toBe(4);
+  });
+
+  it("does not claim a re-probe that never ran", async () => {
+    const repo = makeRepo();
+    // Rung 2 is offered, but the model answers with a spec IR rather than demoting, so no
+    // probe runs. Q15(b) is a statement about what a re-probe observed; with no re-probe there
+    // is nothing to say, and saying it would put a false sentence in front of a human.
+    const model = new ScriptedModel([
+      fenced(b0ProbeIr()),
+      fenced(b0Ir()),
+      fenced(retitled("one")),
+      fenced(retitled("two")),
+    ]);
+
+    const report = await runScenario(
+      options(repo, {
+        callsModel: model,
+        runsCypress: new ScriptedCypress(false, undefined, TABS_VISIBLE_LINE),
+      })
+    );
+
+    expect(report.stopCondition).toBe("heal-exhausted");
+  });
+
+  it("keeps the red spec, which the assist packet needs in order to name a step", async () => {
+    const repo = makeRepo();
+
+    await runScenario(
+      options(repo, {
+        callsModel: confirmsTheSelector(),
+        runsCypress: new ScriptedCypress(false, undefined, TABS_VISIBLE_LINE),
+      })
+    );
+
+    expect(fs.readFileSync(path.join(repo, SPEC), "utf8")).toContain("NOT GREEN");
+  });
+
+  it("takes the model's word that the app contradicts the scenario", async () => {
+    const repo = makeRepo();
+    const asks =
+      'I cannot fix this.\n\n```json\n' +
+      '{"assist":{"why":"the timeline shows one event, the scenario says three"}}\n```\n';
+    const model = new ScriptedModel([fenced(b0ProbeIr()), fenced(b0Ir()), asks]);
+
+    const report = await runScenario(
+      options(repo, { callsModel: model, runsCypress: new ScriptedCypress([false, true]) })
+    );
+
+    expect(report.stopCondition).toBe("app-contradicts-scenario");
+    // Green is a gate, so this is a FAIL that carries a question rather than a shrug.
+    expect(report.score?.verdict).toBe("FAIL");
+    expect(report.score?.interventions.join(" ")).toContain("the timeline shows one event");
+  });
+
+  it("re-prompts one rejected diff, then stops rather than looping for free", async () => {
+    const repo = makeRepo();
+    // A frozen edit: weakening the comparator, which is the attack the split exists to stop.
+    const weakened = (): IrDocument => {
+      const ir = b0Ir();
+      return {
+        ...ir,
+        steps: ir.steps.map((step) =>
+          step.id === "check-source" && step.assert
+            ? { ...step, assert: { ...step.assert, compare: "equals" as const } }
+            : step
+        ),
+      };
+    };
+    const model = new ScriptedModel([
+      fenced(b0ProbeIr()),
+      fenced(b0Ir()),
+      fenced(weakened()),
+      fenced(weakened()),
+    ]);
+
+    const report = await runScenario(
+      options(repo, { callsModel: model, runsCypress: new ScriptedCypress(false) })
+    );
+
+    expect(report.stopCondition).toBe("heal-rejected-twice");
+    // A rejection is free in Cypress runs, which is the resource the budget meters - so the cap
+    // is the only thing that stops a model retrying a frozen edit until the turn cap catches it.
+    expect(report.cost.totalRuns).toBe(2);
+    expect(promptsOf(model)[3]).toContain("last attempt");
+  });
+});
+
