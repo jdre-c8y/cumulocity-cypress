@@ -57,7 +57,7 @@ function input(over: Partial<ScoreInput> = {}): ScoreInput {
     specPath: "cypress/e2e/dataAndControlTeam/events.cy.ts",
     sourceMap,
     runResult: GREEN,
-    greenOnFirstAttempt: true,
+    specAttempts: 1,
     retriesDisabled: true,
     interventions: [],
     cost: NO_COST,
@@ -120,10 +120,17 @@ describe("the verdict", () => {
   });
 
   it("is FAIL when the spec only went green on a later attempt", () => {
-    const result = score(input({ greenOnFirstAttempt: false }));
+    const result = score(input({ specAttempts: 2 }));
 
     expect(result.verdict).toBe("FAIL");
     expect(result.axisA.detail).toMatch(/not on the first attempt/);
+  });
+
+  it("names the attempt it actually took, because a heal run reads this line as a fact", () => {
+    // It read "a spec that passes on attempt three is flaky" whatever the count was. The first
+    // live heal run went green on attempt two and the report said three.
+    expect(score(input({ specAttempts: 2 })).axisA.detail).toContain("it passed on attempt 2");
+    expect(score(input({ specAttempts: 3 })).axisA.detail).toContain("it passed on attempt 3");
   });
 
   it("is FAIL when green was reached with retries the target repo tolerates", () => {

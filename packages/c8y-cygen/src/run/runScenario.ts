@@ -664,7 +664,7 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
             specPath: specRelative,
             sourceMap: lastSourceMap,
             runResult: lastRunResult,
-            greenOnFirstAttempt: green && specRuns === 1,
+            specAttempts: specRuns,
             retriesDisabled: true,
             interventions,
             cost,

@@ -3,9 +3,13 @@
   "compilerOptions": {
     "types": ["node", "jest"],
     "isolatedModules": true,
+    "rootDir": ".",
     "noEmit": true
   },
-  "include": ["src/**/*.ts"],
+  // `scripts/` holds the drills that drive the loop against a live tenant. They import half the
+  // package, so a rename that breaks one is a rename that breaks the tool - and a drill nobody
+  // type-checks is a drill that fails at the moment you reach for it.
+  "include": ["src/**/*.ts", "scripts/**/*.ts"],
   // Overriding `include` alone is not enough: `exclude` is inherited, and the parent excludes
   // `src/**/*.spec.ts` and `src/testing/**`. Without this the config named "spec" type-checks
   // zero spec files - measured, 29 files in the program and not one of them a test - while

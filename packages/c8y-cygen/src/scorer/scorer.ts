@@ -46,8 +46,12 @@ export interface ScoreInput {
   sourceMap: SourceMap;
   /** null when no spec run ever happened. */
   runResult: CypressRunResult | null;
-  /** True only when the first spec run was the green one. */
-  greenOnFirstAttempt: boolean;
+  /**
+   * How many spec runs the loop spent. Axis A wants the first one to have been the green one,
+   * and the count rather than a boolean because the report names it: a run that heals says so
+   * with the attempt it actually took.
+   */
+  specAttempts: number;
   retriesDisabled: boolean;
   interventions: string[];
   cost: RunTotals;
@@ -99,15 +103,16 @@ export function score(input: ScoreInput): Score {
   }
 
   const greenNow = input.runResult?.pass === true;
-  const axisAPass = greenNow && input.greenOnFirstAttempt && input.retriesDisabled;
+  const axisAPass = greenNow && input.specAttempts === 1 && input.retriesDisabled;
   const axisADetail = !input.runResult
     ? "no spec run happened"
     : !greenNow
       ? `Cypress reported ${input.runResult.testFailures.length} test failure(s) and ${input.runResult.specFailures.length} spec failure(s)`
       : !input.retriesDisabled
         ? "green, but retries were not forced to zero, so this does not count"
-        : !input.greenOnFirstAttempt
-          ? "green, but not on the first attempt - a spec that passes on attempt three is flaky"
+        : input.specAttempts !== 1
+          ? `green, but not on the first attempt - it passed on attempt ${input.specAttempts}, ` +
+            `and a spec that needs a heal to go green is flaky until it stops needing one`
           : "green on the first attempt with retries disabled";
 
   const axisBPass = covered === outcomes.length;
