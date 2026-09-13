@@ -1,6 +1,7 @@
 import { lintIr, type LintInput } from "./lintIr.js";
 import { b0Contract, b0Conventions, b0Facts, b0Ir, b0ProbeIr } from "../testing/b0.js";
 import type { IrDocument, IrStep } from "./types.js";
+import { findRow, type FactsDocument } from "../facts/types.js";
 
 function specInput(mutate: (ir: IrDocument) => void = () => {}): LintInput {
   const ir = b0Ir();
@@ -63,6 +64,34 @@ describe("the semantic linter", () => {
         contract: b0Contract(),
       }).coveredOutcomes
     ).toEqual([]);
+  });
+
+  // A selector is derived from an observed row and can never be invented. An operand read out
+  // of the page is the same claim, and had no check at all: `extract: "value"` compiled happily
+  // against a row no probe ever saw hold a value. B1 asserted a device name that was on the
+  // screen and in no fact, and spent the rest of its budget healing the wrong thing.
+  it("refuses to read a value off a row no probe observed one on", () => {
+    const input = specInput((ir) => {
+      const step = ir.steps.find((s) => s.id === "check-source") as IrStep;
+      (step.assert as { extract: string }).extract = "value";
+    });
+
+    expect(messages(input)).toMatch(/asserts on a value/);
+    // In probe mode the same finding is a gap, not a refusal: it is something still to observe.
+    expect(
+      lintIr({ ...input, mode: "probe" }).gaps.find((g) => g.need === "value")?.at
+    ).toBe("check-source");
+  });
+
+  it("allows it once the probe has recorded one, which is what a settle is for", () => {
+    const input = specInput((ir) => {
+      const step = ir.steps.find((s) => s.id === "check-source") as IrStep;
+      (step.assert as { extract: string }).extract = "value";
+    });
+    const row = findRow(input.facts as FactsDocument, "event-detail#1");
+    (row as { value?: string }).value = "e2eDevice";
+
+    expect(lintIr(input).errors).toEqual([]);
   });
 
   it("will not let a spec IR lint while any selector is still provisional", () => {

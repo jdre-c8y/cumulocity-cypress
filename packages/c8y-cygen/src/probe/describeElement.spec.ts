@@ -4,6 +4,7 @@ import {
   classesOf,
   describeElement,
   isActionable,
+  MAX_VALUE,
   ownTextOf,
   repeatOf,
   type ElementLike,
@@ -52,6 +53,37 @@ describe("describeElement", () => {
     });
 
     expect(attrsOf(el)).toEqual({ dataCy: "event-details-custom-data", title: "Custom data" });
+  });
+
+  // Selection and observation are different questions. A selector may never be written against
+  // a value - it holds data, and data changes - but a sixth of the corpus asserts on one, and
+  // the model cannot ask for what no fact says is there.
+  it("carries what an input holds, and still keeps it out of the ladder's vocabulary", () => {
+    const el = build({ tag: "input", attrs: { title: "Name" } });
+    (el as { value?: string }).value = "e2eDevice";
+
+    const row = describeElement(el, "s#1", painting);
+
+    expect(row.value).toBe("e2eDevice");
+    expect(attrsOf(el)).toEqual({ title: "Name" });
+    expect(row.attrs).not.toHaveProperty("value");
+  });
+
+  // Facts are written to disk and then sent to a model. A probe that walks a login form must
+  // not put the tenant's password in either, and the browser half is the layer that can be
+  // bypassed - so this is checked on the node side too, not only where it is first refused.
+  it("never reads a password, however it got here", () => {
+    const el = build({ tag: "input", attrs: { type: "password", title: "Password" } });
+    (el as { value?: string }).value = "hunter2";
+
+    expect(describeElement(el, "s#1", painting).value).toBeUndefined();
+  });
+
+  it("drops a value too long to assert on rather than clipping it into a lie", () => {
+    const el = build({ tag: "textarea" });
+    (el as { value?: string }).value = "x".repeat(MAX_VALUE + 1);
+
+    expect(describeElement(el, "s#1", painting).value).toBeUndefined();
   });
 
   it("drops the volatile framework classes a selector must never rest on", () => {

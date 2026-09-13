@@ -17,6 +17,8 @@ export interface ElementLike {
   readonly children: { readonly length: number; item(i: number): ElementLike | null };
   parentElement: ElementLike | null;
   textContent: string | null;
+  /** Present on the elements that hold one - input, textarea, select - and on nothing else. */
+  value?: string;
 }
 
 /** Everything the reduction needs to know about how the element is painted. */
@@ -39,6 +41,27 @@ const ATTRS: [keyof RowAttrs, string][] = [
 
 const MAX_TEXT = 80;
 const MAX_ANCESTORS = 8;
+
+/**
+ * Longer than a name, an id, an email or a URL; shorter than a body of prose. A value past this
+ * is dropped whole rather than clipped, because an equality written against a clipped value is
+ * a spec that fails for a reason nothing in the facts explains.
+ */
+export const MAX_VALUE = 120;
+
+/**
+ * What the element holds. Never an attribute: for a databound input the attribute is stale.
+ *
+ * A password is refused here as well as in the browser. The browser half is the layer that can
+ * be bypassed - a hand-written payload, a replayed facts file - and a credential reaching a
+ * prompt is not the kind of mistake a single guard should be enough for.
+ */
+export function valueOf(el: ElementLike): string | undefined {
+  if (el.getAttribute("type") === "password") return undefined;
+  const v = el.value;
+  if (typeof v !== "string" || v === "" || v.length > MAX_VALUE) return undefined;
+  return v;
+}
 
 /**
  * Angular sprays volatile state classes onto everything. A selector built from one is a
@@ -146,6 +169,11 @@ export function repeatOf(el: ElementLike): { siblingsLike: number; index: number
   return { siblingsLike: Math.max(siblingsLike, 1), index };
 }
 
+const valuePart = (el: ElementLike): { value?: string } => {
+  const value = valueOf(el);
+  return value === undefined ? {} : { value };
+};
+
 export function describeElement(
   el: ElementLike,
   id: string,
@@ -158,6 +186,7 @@ export function describeElement(
     attrs: attrsOf(el),
     classes: classesOf(el),
     text: ownTextOf(el),
+    ...valuePart(el),
     visibility: painting.visibility,
     actionable: isActionable(el),
     repeat: repeatOf(el),

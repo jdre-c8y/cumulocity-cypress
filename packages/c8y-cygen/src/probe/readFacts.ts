@@ -307,13 +307,31 @@ export function summariseFacts(
     }
     lines.push(`# ${surface.label}  (within ${surface.within ?? "page"})`);
     for (const row of rankRows(surface.rows).slice(0, maxRowsPerSurface)) {
-      const label = row.attrs.dataCy
-        ? `data-cy=${row.attrs.dataCy}`
-        : row.attrs.title
-          ? `title=${row.attrs.title}`
-          : row.text
-            ? `"${row.text.slice(0, 40)}"`
-            : "";
+      // Name AND content, never one or the other.
+      //
+      // This used to be a chain of alternatives, so a row with a `data-cy` showed its name and
+      // nothing else. B1 was offered `span data-cy=c8y-dashboard-list--device-widget` - a name
+      // that promises a device, on an element whose text reads "Asset Properties" - chose it
+      // three times across two spec runs, and failed on the text every time. The contradiction
+      // was already in the facts; the label dropped the half that carried it.
+      //
+      // It is not free: this is the largest text sent to a model. Measured over B1's 1,267
+      // collected rows, 91 of them (7.2%) carry a text a name was hiding, at about 266 tokens
+      // for the whole run. That is the price, and it is worth it once.
+      //
+      // The value is shown whole or not at all. Clipping it to fit would invite an equality
+      // against a prefix, which is the one mistake this field exists to prevent.
+      const label = [
+        row.attrs.dataCy
+          ? `data-cy=${row.attrs.dataCy}`
+          : row.attrs.title
+            ? `title=${row.attrs.title}`
+            : "",
+        row.text ? `"${row.text.slice(0, 40)}"` : "",
+        row.value === undefined ? "" : `value=${JSON.stringify(row.value)}`,
+      ]
+        .filter(Boolean)
+        .join("  ");
       const marks = [
         row.actionable ? "actionable" : "",
         row.visibility !== "visible" ? row.visibility : "",

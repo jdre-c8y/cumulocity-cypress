@@ -81,6 +81,11 @@
           },
           "classes": { "type": "array", "items": { "type": "string" } },
           "text": { "type": "string" },
+          "value": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "What an input holds, read from the .value property and never from the attribute - for a databound input the attribute is stale. Never a selector part: `attrs` above is the ladder's whole vocabulary and has no entry for it."
+          },
           "visibility": { "enum": ["visible", "hidden", "clipped"] }
         }
       }

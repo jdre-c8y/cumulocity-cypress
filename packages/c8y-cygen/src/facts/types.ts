@@ -57,6 +57,25 @@ export interface CandidateRow {
   attrs: RowAttrs;
   classes: string[];
   text: string;
+  /**
+   * What the element holds, for an element that holds something - an input, a textarea, a
+   * select. Deliberately **not** in `RowAttrs`.
+   *
+   * `[value]` is banned as a selector part and stays banned: it holds data, and data changes.
+   * Ticket 07 enforced that ban by giving the value no field to arrive in anywhere, and that
+   * reached past *selection* into *observation*. They are different questions. A selector may
+   * never be written against a value; the model must still be able to see that an element holds
+   * one, or `extract: "value"` can never be justified by a fact - which is 100 assertions across
+   * 36 of the corpus's 214 specs, and the reason B1 asserted a device name that was on the
+   * screen and in none of its 293 post-save rows.
+   *
+   * Keeping it out of `RowAttrs` is what keeps the selector ban structural: `RowAttrs` is the
+   * ladder's whole vocabulary, and the ladder cannot reach a field that is not in it.
+   *
+   * Dropped whole rather than clipped when it is too long to assert on, the same rule an
+   * observed response body follows: a clipped value read back as an equality is a lie.
+   */
+  value?: string;
   visibility: Visibility;
   /** The one judgement the model's summary carries. */
   actionable: boolean;

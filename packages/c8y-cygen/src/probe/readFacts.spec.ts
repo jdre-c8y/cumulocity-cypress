@@ -9,7 +9,7 @@ import {
   summariseFacts,
 } from "./readFacts.js";
 import { rowsFromRawNodes, type RawNode } from "./rawNodes.js";
-import { findRequest, findRow } from "../facts/types.js";
+import { findRequest, findRow, type FactsDocument } from "../facts/types.js";
 
 function node(over: Partial<RawNode> & Pick<RawNode, "i" | "parent" | "tag">): RawNode {
   return {
@@ -18,6 +18,20 @@ function node(over: Partial<RawNode> & Pick<RawNode, "i" | "parent" | "tag">): R
     text: "",
     visibility: "visible",
     ...over,
+  };
+}
+
+/** One collected surface, straight from raw nodes - the shortest path to a FactsDocument. */
+function factsOf(nodes: RawNode[]): FactsDocument {
+  return {
+    version: 1,
+    appVersion: "1020.0.0",
+    complete: true,
+    runId: "r1",
+    tenantUrl: "https://t.example",
+    surfaces: [{ label: "s", within: null, observedAt: "now", rows: rowsFromRawNodes("s", nodes) }],
+    provisionalMatches: [],
+    requests: [],
   };
 }
 
@@ -234,6 +248,36 @@ describe("summariseFacts", () => {
       expect(summary).toContain("event-detail#1  div  data-cy=c8y-event-details--type-wrapper");
       expect(summary).not.toContain("ancestors");
     });
+  });
+
+  // B1 spent two spec runs on this row. Its data-cy promises a device; its text says what it
+  // actually holds, and the label showed one or the other and never both. The model picked the
+  // name three times and the assertion failed on the text every time.
+  it("shows a row's text as well as its name, because the name can lie about the content", () => {
+    const facts = factsOf([
+      node({ i: 0, parent: -1, tag: "c8y-dashboard-child" }),
+      node({
+        i: 1,
+        parent: 0,
+        tag: "span",
+        attrs: { "data-cy": "c8y-dashboard-list--device-widget" },
+        text: "Asset Properties",
+      }),
+    ]);
+
+    const line = summariseFacts(facts);
+
+    expect(line).toContain("data-cy=c8y-dashboard-list--device-widget");
+    expect(line).toContain('"Asset Properties"');
+  });
+
+  it("shows what an input holds, which is the only place some values are ever written", () => {
+    const facts = factsOf([
+      node({ i: 0, parent: -1, tag: "ng-form" }),
+      node({ i: 1, parent: 0, tag: "input", attrs: { title: "Name" }, value: "e2eDevice" }),
+    ]);
+
+    expect(summariseFacts(facts)).toContain('value="e2eDevice"');
   });
 });
 

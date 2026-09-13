@@ -66,7 +66,10 @@ const CONFIG_NODES: RawNode[] = [
   node(1, 0, "button", { attrs: { "data-cy": "widgets-dashboard--Edit-widget" } }),
   node(2, 0, "div", { attrs: { "data-cy": "Asset selection" } }),
   node(3, 2, "span", { classes: ["chip"], text: B1_DEVICE_NAME }),
-  node(4, 0, "input", { attrs: { title: "Name" } }),
+  // The device's name lives here and nowhere else on this surface - as the input's value, not
+  // as anyone's text. Until the probe reported a value, an `extract: "value"` assertion against
+  // this row was an assertion no fact could justify, and the linter now says so.
+  node(4, 0, "input", { attrs: { title: "Name" }, value: B1_DEVICE_NAME }),
   node(5, 0, "button", { attrs: { "data-cy": "widget-config--save-widget" } }),
   node(6, 0, "button", { attrs: { "data-cy": "c8y-widgets-dashboard--save" } }),
 ];

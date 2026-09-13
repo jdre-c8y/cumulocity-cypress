@@ -153,7 +153,25 @@ serving its own fiction makes every fact after it contingent on itself.
 ## How to make progress
 
 Read the facts summary. Each line is one candidate row the probe observed: its id, its tag, what
-identifies it, and whether a person can act on it. To target a row, put its id in `fromRow` and
+identifies it, its own visible text, and whether a person can act on it. **A name and a text on
+the same line can disagree, and the text wins.** A `data-cy` names the component that owns the
+element, not the content it holds: `span data-cy=c8y-dashboard-list--device-widget "Asset
+Properties"` is a widget-type label, and an assertion that it contains a device name fails on
+every run. Read the text before you pick the row.
+
+A line may also carry `value="..."`. That is what an input, textarea or select **holds**, and on
+many surfaces it is the only place a value is written down - a form shows a device's name in a
+field, not as text anywhere. Assert on it with `extract: "value"`. You may only do that against
+a row whose line shows a value: an assertion on content no probe observed is refused, exactly as
+an invented selector is.
+
+**If the value you need is missing, the element usually was not ready.** A probe takes one
+snapshot where a Cypress assertion retries, so a form that fills in after a save or a fetch is
+empty at the instant the probe looks at it. Put a `settle` on that element before the `collect`
+that observes it, rather than hunting for a different element - the other element is generally
+the wrong one, and it is how a run ends up asserting a widget title instead of a device.
+
+To target a row, put its id in `fromRow` and
 leave `resolved` to be filled by the ladder - if you do not know the emitted selector, write your
 best reading of it and the linter will tell you what the ladder actually derives.
 

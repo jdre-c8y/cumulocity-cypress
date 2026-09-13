@@ -68,7 +68,7 @@ export interface LintProblem {
 /** What the next iteration still has to resolve. Probe mode makes the gap legible. */
 export interface LintGap {
   at: string;
-  need: "selector" | "assertion" | "response";
+  need: "selector" | "assertion" | "response" | "value";
   hint: string;
 }
 
@@ -586,6 +586,27 @@ export function lintIr(input: LintInput): LintResult {
       );
       continue;
     }
+    // An operand read out of the page is the same claim a selector makes, and had no check.
+    //
+    // A selector is derived from an observed row and cannot be invented. `extract: "value"`
+    // compiled against any row at all, observed value or not - so the model could assert on
+    // content no probe had ever seen, and find out only from Cypress. B1 did exactly that: it
+    // asserted a device name that was on the screen and in none of its 293 post-save rows.
+    //
+    // The remedy is usually a `settle` rather than a different row. A probe takes one snapshot
+    // where a Cypress assertion retries, so a form that renders after a save is empty when the
+    // probe looks at it - and that is what the hint says, because "no value" on its own sends
+    // the model hunting for another element instead of waiting for this one.
+    if (step.assert?.extract === "value" && row.value === undefined) {
+      const hint =
+        `row '${target.fromRow}' is a <${row.tag}> the probe observed with no value. A probe ` +
+        `takes one snapshot; if this element fills in after a save or a fetch, settle on it ` +
+        `before the collect that observes it.`;
+      if (mode === "spec") add(where, `this asserts on a value, and ${hint}`, "selector-absent");
+      else gaps.push({ at: step.id, need: "value", hint });
+      continue;
+    }
+
     // The verifiable link: the ladder applied to the named row must reproduce the selector.
     const surface = findSurfaceOf(facts, target.fromRow);
     const rows = surface ? surface.rows : [row];

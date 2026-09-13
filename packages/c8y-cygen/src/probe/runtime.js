@@ -38,6 +38,11 @@ var LADDER_ATTRS = [
 var MAX_TEXT = 200;
 var MAX_NODES = 400;
 
+// A coarse guard against shipping a large textarea across the boundary. Node applies the final,
+// smaller cap. Both DROP rather than clip: a clipped value read back as an equality is a lie,
+// and the only way to be sure none exists is for no stage to ever produce one.
+var MAX_VALUE = 200;
+
 function factsDir() {
   return Cypress.env('c8yCygenFactsDir');
 }
@@ -76,6 +81,29 @@ function attrsOf(el) {
   return attrs;
 }
 
+/**
+ * What the element holds, read from the `.value` PROPERTY and never from the attribute.
+ *
+ * This is the whole reason the field exists. For a databound input the `value` attribute holds
+ * the markup's initial value or nothing at all, while the property holds what is on the screen -
+ * so reading the attribute would produce a fact that is wrong in exactly the case that needs it.
+ *
+ * `[value]` stays banned as a selector part, which is a different question: LADDER_ATTRS still
+ * has no entry for it, so no selector can ever be built from what this reports.
+ *
+ * A password is never read. Facts are written to disk and then sent to a model, and a probe that
+ * walks a login form would otherwise put the tenant's credentials in both. The conventions file
+ * already records only env key names for the same reason; this is that rule, one layer down.
+ */
+function valueOf(el) {
+  if (el.type === 'password' || /password/i.test(el.getAttribute('autocomplete') || '')) {
+    return undefined;
+  }
+  var v = el.value;
+  if (typeof v !== 'string' || v === '' || v.length > MAX_VALUE) return undefined;
+  return v;
+}
+
 function classesOf(el) {
   var out = [];
   for (var i = 0; i < el.classList.length; i++) out.push(el.classList.item(i));
@@ -110,6 +138,7 @@ function describeNode(el, index, parentIndex) {
     attrs: attrsOf(el),
     classes: classesOf(el),
     text: ownTextOf(el).slice(0, MAX_TEXT),
+    value: valueOf(el),
     visibility: visibilityOf(el)
   };
 }

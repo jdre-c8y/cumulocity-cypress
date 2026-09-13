@@ -31,6 +31,8 @@ export interface RawNode {
   classes: string[];
   /** This element's OWN text - its direct text children only - normalised and truncated. */
   text: string;
+  /** What an input holds. Read from the property, never the attribute. Absent on everything else. */
+  value?: string;
   visibility: Visibility;
 }
 
@@ -61,6 +63,10 @@ class RawElement implements ElementLike {
   /** Own text, not the subtree's: that is what the browser half reports. */
   get textContent(): string {
     return this.node.text;
+  }
+
+  get value(): string | undefined {
+    return this.node.value;
   }
 
   get index(): number {
