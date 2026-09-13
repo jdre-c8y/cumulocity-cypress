@@ -603,6 +603,29 @@ export function lintIr(input: LintInput): LintResult {
       );
       continue;
     }
+    // An action needs a target that can be acted on, and the row already says so.
+    //
+    // Run five's only failure, and every link in the chain worked as designed: a provisional
+    // missed, so the probe dumped the whole page to give the next guess something to work from;
+    // that dump was taken with the dashboard not in edit mode, and a Save button inside a
+    // collapsed drawer was recorded - correctly - as `hidden`. Nothing stopped the model from
+    // clicking it, and Cypress spent ten seconds on a button inside `display: none`.
+    //
+    // `clipped` stays legal. A clipped element is on the page and scrollable, which is the
+    // preview-versus-saved hazard ticket 07 added the third state for, and not this one.
+    //
+    // Refused in both modes: a click that cannot happen ends a probe run part-way and loses
+    // every surface after it, which is more expensive than the turn this costs.
+    if (step.click && row.visibility === "hidden") {
+      const surface = findSurfaceOf(facts, target.fromRow);
+      add(
+        where,
+        `row '${target.fromRow}' was observed hidden on surface '${surface?.label ?? "?"}', and a click waits for an element to be visible. If it becomes visible in a later state, observe it there and cite that row; if a step has to reveal it first, add that step.`,
+        "selector-absent"
+      );
+      continue;
+    }
+
     // An operand read out of the page is the same claim a selector makes, and had no check.
     //
     // A selector is derived from an observed row and cannot be invented. `extract: "value"`
@@ -714,6 +737,28 @@ export function lintIr(input: LintInput): LintResult {
       "this IR has zero DOM steps, so it is not a UI e2e spec. The contract genre - a roundtrip asserted by a recorded response and a schema - is a separate effort, and v2 refuses it rather than attempting it.",
       "zero-dom-steps"
     );
+  }
+
+  // The style check, both ways round. It only ever had one.
+  //
+  // `integration` + a stub was refused from the start. `mocked` + no stub was not, and run five
+  // walked straight through the hole: the contract said `mocked` and said in as many words that
+  // *no tenant mutation is required or wanted*; the spec carried no stub at all and clicked Save
+  // twice against the live tenant. The fixture survived because the saves happened to round-trip
+  // identically, which is luck about one scenario and not a property of anything.
+  //
+  // A gap while probing rather than a refusal, because the stub turn legitimately comes after
+  // the network has been watched - `fromRequest` has to name an observed exchange, and on the
+  // first iteration there are none.
+  if (ir.meta.style === "mocked" && !steps.some((s) => s.stub)) {
+    const message =
+      `this IR declares 'mocked' style and stubs nothing, which is an integration spec wearing ` +
+      `the mocked label. Mocked means the state is served rather than real: stub the traffic the ` +
+      `flow depends on, or say 'integration' in meta.style if the scenario's Style line says so.`;
+    // `response-absent`, not `zero-dom-steps`: what is missing is a served response. Reusing a
+    // condition for its convenience would put this in the wrong column of the assist accounting.
+    if (mode === "spec") add("meta.style", message, "response-absent");
+    else gaps.push({ at: "meta.style", need: "response", hint: message });
   }
 
   // --- reset what you created, and only that -------------------------------------------

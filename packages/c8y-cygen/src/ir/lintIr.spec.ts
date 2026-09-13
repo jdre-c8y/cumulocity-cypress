@@ -94,6 +94,30 @@ describe("the semantic linter", () => {
     expect(lintIr(input).errors).toEqual([]);
   });
 
+  // Run five's only failure. A provisional missed, so the probe dumped the whole page to give
+  // the next guess something to work from; that dump was taken with the dashboard not in edit
+  // mode, and a Save button inside a collapsed drawer was recorded - correctly - as hidden. The
+  // model later clicked it. Every link worked as designed and Cypress still waited ten seconds
+  // for a button inside `display: none`.
+  //
+  // The row has carried `visible | hidden | clipped` since ticket 07 precisely so this can be
+  // judged, and it was judged nowhere.
+  it("refuses to click a row the probe saw as hidden", () => {
+    const input = specInput();
+    const row = findRow(input.facts as FactsDocument, "events-page#3");
+    (row as { visibility: string }).visibility = "hidden";
+
+    expect(messages(input)).toMatch(/hidden/);
+  });
+
+  it("still clicks a clipped row, which is on the page and merely scrolled out of it", () => {
+    const input = specInput();
+    const row = findRow(input.facts as FactsDocument, "events-page#3");
+    (row as { visibility: string }).visibility = "clipped";
+
+    expect(lintIr(input).errors).toEqual([]);
+  });
+
   it("will not let a spec IR lint while any selector is still provisional", () => {
     // This is the loop's stop condition. An under-probed spec IR is unlinttable by
     // construction, so "am I done gathering?" is a free local check.

@@ -269,6 +269,22 @@ describe("style, which axis D grades and the linter can check", () => {
   // already drops every stub in probe mode and says so in the emitted spec, so the probe calls
   // the real application either way. Dropping is not serving, and a mocked oracle has to be
   // able to re-probe.
+  // The other half of the style check, which was only ever written one way round. Run five's
+  // spec declared `mocked`, carried no stub at all, and clicked Save twice against the live
+  // tenant - while the contract said in as many words that no tenant mutation was wanted. The
+  // fixture survived because the saves round-tripped identically, which is luck about one
+  // scenario rather than a property of the design.
+  it("refuses a mocked IR that stubs nothing, which is an integration spec wearing the label", () => {
+    expect(messages(input([visit, TITLE]))).toMatch(/declares 'mocked'/);
+  });
+
+  it("says it as a gap while probing, because the stub turn comes later", () => {
+    const result = lintIr({ ...input([visit, TITLE]), mode: "probe" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.gaps.some((g) => /stubs nothing/.test(g.hint))).toBe(true);
+  });
+
   it("lets a probe IR carry a stub, and tells the model the probe dropped it", () => {
     const result = lintIr({ ...input([stub(), visit, TITLE]), mode: "probe" });
 
