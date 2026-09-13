@@ -1,7 +1,7 @@
 # Anchored scope, and the value no row carries
 
 Type: prototype
-Status: partly built — findings 1 and 3 (`2431213`) and 4 and 5 (`HEAD`) built; finding 2 open
+Status: partly built — findings 1, 3, 4, 5 built and measured; findings 2 and 6 open. B1's spec now passes; axis A fails only on the first-attempt rule.
 Blocked by: — (07 resolved; reopened by the B1 oracle run)
 Assignee: jdre
 
@@ -413,6 +413,77 @@ assist path and the frozen-field guard both working as designed.
 $13.18 across four runs against the raised $15 gate. The next run is the last one B1 can buy,
 and it should not be bought until findings 4 and 5 are built — 5 especially, because without it
 a re-probe is impossible and the loop cannot recover from anything.
+
+## Run five: the spec passes, and the verdict is still FAIL
+
+`b1-fifth`, with findings 1, 3, 4 and 5 built.
+
+```
+VERDICT  FAIL
+  A green            FAIL  green, but not on the first attempt - it passed on attempt 2
+  B outcome coverage PASS  4 of 4
+  interventions      0
+  cost               $3.9947 over 8 iterations, 7 Cypress runs (5 probe), 8 model turns
+  note               TRIPWIRE: 5 probe runs against a cap of 5
+```
+
+**`iteration 8: spec run passed`.** B1's generated spec runs green against the live
+application. That has not happened before. The verdict is FAIL because axis A is *green on the
+first attempt with retries disabled*, and this took a heal — which is the right rule and should
+not be softened: a spec that needs a heal to go green is flaky until it stops needing one.
+
+The emitted assertion, which is what all of this was for:
+
+```ts
+cy.get('[title="Name"]').should('have.value', deviceName);
+```
+
+Both findings are visible in that one line. `have.value` exists because finding 3 let the probe
+see it. It reads `[title="Name"]` rather than `input[name="sf-name73"]` because finding 4
+refused the allocated identifier and the ladder fell through to the label — which is the
+selector a person would have written.
+
+Finding 5 paid for itself on the same run: **iteration 7 is a re-probe after a spec failure**,
+the exact move that deadlocked run four. It cost a probe run and worked.
+
+### Corrections to what run four's write-up claimed
+
+- **Probe runs did not stay down.** Run four used 3 of 5 and I reported that as findings 1 and
+  3 working. Run five used 5 of 5 and tripped the wire. The claim was drawn from one run and
+  does not hold; probe count tracks how the heal goes, not how good the facts are.
+- Run five's one spec failure was reported *at an unmapped line* — it clicked
+  `[data-cy="dashboard-detail--save-dashboard"]`, hidden inside a collapsed
+  `div.collapse.c8y-top-drawer`, and the source map could not attribute the line to a step. The
+  heal recovered anyway (it moved to `c8y-widgets-dashboard--save`), but a failure the source
+  map cannot place is a diagnostic the next failure may need. → [Hygiene](09-hygiene.md).
+
+### Finding 6 — `mocked` is enforced in one direction only, and the run wrote to the tenant
+
+The contract says:
+
+> `mocked` — the whole scenario is about client-side config round-tripping; **no tenant
+> mutation is required or wanted.**
+
+The passing spec contains **no stub at all**. Both `cy.intercept` calls are bare `sync` aliases
+with no response, and the spec then clicks Save twice against the live tenant. The linter
+refuses a stub under `integration` style and has nothing to say about a `mocked` IR that stubs
+nothing, so a mocked contract produced an integration spec and no rule noticed.
+
+The tenant survived — the dashboard still reads
+`device = {name: e2eDevice, id: 19753902}`, so the saves round-tripped identically — but that
+is luck about this scenario, not a property of the design. Ticket 05 owns two genres in one
+pipeline; this is the genre check missing its other half.
+
+**Decision to take:** a `mocked` IR that carries no `stub` is refused, with the contract's own
+Style line quoted back. It is the same rule as the integration one, written the other way
+round, and it is also an axis-C and axis-D finding that a human grader would otherwise have to
+catch by reading.
+
+### Where B1 stands
+
+$17.17 across five runs against the $20 gate. One run left, and it should not be spent until
+finding 6 is built and the flakiness that forced the heal is understood — a re-run that goes
+green on attempt 2 again buys the same FAIL.
 
 ## What would falsify this
 
