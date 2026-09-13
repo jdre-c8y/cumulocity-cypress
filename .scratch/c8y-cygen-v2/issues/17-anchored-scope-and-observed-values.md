@@ -1,7 +1,7 @@
 # Anchored scope, and the value no row carries
 
 Type: prototype
-Status: partly built — findings 1, 3, 4, 5 built and measured; findings 2, 6 and 7 open. B1's spec now passes; axis A fails only on the first-attempt rule.
+Status: partly built — findings 1, 3, 4, 5 built and measured; findings 2, 6 and 7 open. **B1 PASSES** as of run six. B1's spec now passes; axis A fails only on the first-attempt rule.
 Blocked by: — (07 resolved; reopened by the B1 oracle run)
 Assignee: jdre
 
@@ -528,6 +528,59 @@ was wrong: the scan printed only each provisional payload's *matched* node, and 
 match count was zero — so the 400 nodes it carried, one of them the button, never appeared. The
 invariant was never in question. A grep for the literal string, which should have been the first
 move, found it immediately.
+
+## Run six: PASS
+
+```
+VERDICT  PASS
+  A green            PASS  green on the first attempt with retries disabled
+  B outcome coverage PASS  4 of 4
+  interventions      0
+  cost               $3.6400 over 6 iterations, 5 Cypress runs (4 probe), 6 model turns
+```
+
+**B1's first PASS**, on the same build as run five — no code changed between them. Six
+iterations, no heal, no spec failure, tripwire not reached.
+
+**The advice not to spend this run was wrong, and the reason it was wrong is worth keeping.**
+The argument was that run five's failure was undiagnosed, so a re-run was a coin flip on an
+unknown bug. Both halves were true and the conclusion still did not follow: the model re-authors
+the IR from scratch each run, so run five's failure was never a property of the tool that run
+six would inherit — it was one IR's choice of one row. The right question was not *"do we know
+why it failed?"* but *"is the failure a property of the build or of one authoring?"*, and that
+was answerable from the same facts, for free.
+
+Finding 7 stands regardless and should still be built: a `click` on a row observed `hidden` is
+a real defect, run five paid for it, and run six only avoided it by not making that choice.
+
+### What the PASS does not settle, and a human grading C and D should see
+
+- **Rule 3 guarantees honesty, not economy.** The four stubs are derived from observed
+  exchanges, nothing invented — and the dashboard-lookup body runs to roughly 400 lines,
+  carrying six near-identical `c8y_DashboardHistory` entries and `$$hashKey: 'object:57'`. The
+  hand-written oracle's equivalent is about fifteen. The observed body is spliced whole and
+  nothing prunes what the test does not read. This is an axis-D finding, and it is the cost of
+  the rule that makes the stub trustworthy.
+- **The stub bodies carry timestamps from earlier runs** — `lastUpdated: 2026-09-13T19:14:10Z`
+  is the fixture's state after run five's saves. Regenerate tomorrow and the file differs for a
+  reason that has nothing to do with the contract. → [Replay and determinism](04-replay-and-determinism.md).
+- **Finding 6 is still real and now known to be intermittent.** Run five's spec carried no stub
+  at all under the same `mocked` contract and nothing complained; run six carried four. A rule
+  that only sometimes matters is still a rule.
+
+### B1's measured figures
+
+| run | verdict | cost | probe runs | note |
+| --- | --- | --- | --- | --- |
+| 1–2 | aborted | $2.91 | — | max_tokens, then the SDK's non-streaming limit |
+| third | FAIL | $4.90 | 5 of 5 | the `data-cy` name-lure |
+| fourth | FAIL | $5.37 | 3 of 5 | allocated identifier; re-probe deadlock |
+| fifth | FAIL | $3.99 | 5 of 5 | green on attempt 2; clicked a hidden row |
+| **sixth** | **PASS** | **$3.64** | 4 of 5 | — |
+
+The passing run is the figure the gates judge: **$3.64 against a $20 ceiling and a $3 median
+target.** It clears the ceiling with room to spare and misses the median by 64 cents, which is
+the honest reading — the median is the binding gate and B1 is just outside it.
 
 ## What would falsify this
 

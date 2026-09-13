@@ -248,6 +248,12 @@ numbers exist:
 
 A run that reaches green for $50 has not passed in any useful sense.
 
+**First measured result, 2026-09-13: B1 PASS** — green on the first attempt, retries disabled,
+4 of 4 outcomes, 0 interventions, **$3.64**, 4 probe runs of 5. Five runs preceded it and each
+found a real defect; the arguments are in
+[ticket 17](../issues/17-anchored-scope-and-observed-values.md). v1's reconstructed score was
+1 PASS / 1 ASSIST / 3 unattempted, and B1 was one of the unattempted three.
+
 ---
 
 ## 5. Scenario contracts
