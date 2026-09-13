@@ -446,11 +446,28 @@ export function lintIr(input: LintInput): LintResult {
     // --- the stub is anchored to something a probe actually saw ----------------------
     if (step.stub) {
       const body = step.stub;
+      // A stub in a probe IR is a note, not a refusal - and the difference is the whole
+      // difference between a loop that can recover and one that cannot.
+      //
+      // The refusal was right about the hazard and wrong about who had already handled it. A
+      // probe that SERVES a fabricated body records its own fiction, and every fact derived
+      // from that run is contingent on itself. But the compiler does not serve it: probe mode
+      // drops every stub and says so in the emitted spec. Dropping is not serving.
+      //
+      // Refusing it cost B1 its fourth run. To re-probe, the model must put a target back to
+      // `provisional`, which compiles as a probe IR - and this rule then refused the document,
+      // while the heal guard refused the only fix, because deleting a non-scaffolding step is
+      // frozen. Two walls facing each other, and every mocked oracle is one heal away from
+      // standing between them. The model diagnosed it correctly and spent the run asking for a
+      // human.
       if (mode === "probe") {
-        add(
-          where,
-          `'stub' must not appear in a probe IR. A probe exists to see what the real application returns; one that serves a fabricated body records its own fiction, and every fact derived from that run is then contingent on itself. Add the stub on the turn that writes the spec.`
-        );
+        gaps.push({
+          at: step.id,
+          need: "response",
+          hint:
+            `this probe run drops stub '${step.id}' and calls the real application, which is ` +
+            `what a probe is for. Its facts are therefore unstubbed - read them that way.`,
+        });
       }
       if (ir.meta.style === "integration") {
         add(

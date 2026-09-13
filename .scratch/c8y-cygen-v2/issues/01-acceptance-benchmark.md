@@ -104,8 +104,9 @@ decorative.
 has to beat, and the fact that three tiers were never attempted is why the v1 design was
 never falsifiable.
 
-**Cost gates:** no single oracle over **$15** (raised from $10 on 2026-09-13, on B1's first
-real v2 data — see the benchmark README), median ≤$3, both derived from v1's measured
+**Cost gates:** no single oracle over **$20** (raised from $10 in two steps on 2026-09-13, on
+B1's first real v2 data — see the benchmark README, where the ceiling is now explicitly the
+loose gate and the median the binding one), median ≤$3, both derived from v1's measured
 $4–8+ and both revisable on real v2 data. Recorded per run: USD, token split including
 cache-creation (the §3 TTL-lapse signal), tool-call turns, wall clock, Cypress run count,
 human intervention count and kind.

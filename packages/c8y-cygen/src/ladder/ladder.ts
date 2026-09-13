@@ -54,6 +54,35 @@ export const BANNED: Record<string, string> = {
   href: "holds a URL, and URLs carry ids",
 };
 
+/**
+ * A person numbering fields by hand counts the things on the page. A framework allocating ids
+ * counts every field it has ever rendered in the session, and renumbers on the next render.
+ *
+ * B1's fourth run was lost to the difference. The ladder derived `input[name="sf-name73"]`; it
+ * passed after the first save cycle, and after the second the element did not exist, while the
+ * screenshot showed the widget rendered correctly. The surface carried the allocator in plain
+ * sight - `sf-id72`, `sf-name73`, `sf-type74`, `idStatus75`, `nameStatus77`, `typeStatus79`:
+ * one counter running through six different stems.
+ *
+ * The threshold is measured rather than chosen. Of 846 `[name]`, `[formcontrolname]` and `[id]`
+ * literals across the two corpora, 15 end in a digit - `groups0`, `apps0`, `stopSequence0`,
+ * `stopSequence1`, `headerKey0`, `headerKey1`, `field1`, `field2` - and **every one of those
+ * suffixes is 0 or 1**. The generated ones start at 72. Nothing human measured lands in
+ * between, so the rule costs nothing that was ever observed and the slack is nine.
+ *
+ * Refusing the descriptor, not the row: the ladder falls through to the next rung, which for
+ * B1's input is `[title="Name"]` - the label the form renders, which does not renumber.
+ */
+const ALLOCATED = /[^0-9](\d{2,})$/;
+
+export function allocatedIdentifier(value: string): boolean {
+  const m = ALLOCATED.exec(value);
+  return m !== null && Number(m[1]) >= 10;
+}
+
+const stable = (value: string | undefined): string | undefined =>
+  value !== undefined && allocatedIdentifier(value) ? undefined : value;
+
 const isCustomTag = (t: string): boolean =>
   /^c8y/.test(t) || (t.includes("-") && !t.startsWith("ng-"));
 
@@ -95,9 +124,10 @@ export const RUNGS: Rung[] = [
     id: "stable-attr",
     all: (r) =>
       compact([
-        r.attrs.name && `${r.tag}[name="${r.attrs.name}"]`,
-        r.attrs.formControlName && `${r.tag}[formcontrolname="${r.attrs.formControlName}"]`,
-        r.attrs.id && `[id="${r.attrs.id}"]`,
+        stable(r.attrs.name) && `${r.tag}[name="${r.attrs.name}"]`,
+        stable(r.attrs.formControlName) &&
+          `${r.tag}[formcontrolname="${r.attrs.formControlName}"]`,
+        stable(r.attrs.id) && `[id="${r.attrs.id}"]`,
         r.attrs.role && `[role="${r.attrs.role}"]`,
         r.attrs.ariaLabel && `[aria-label="${r.attrs.ariaLabel}"]`,
       ]),
@@ -124,7 +154,7 @@ const ancestorDescriptors = (a: AncestorDescriptor): string[] =>
   [
     a.dataCy ? `[data-cy="${a.dataCy}"]` : null,
     isCustomTag(a.tag) ? a.tag : null,
-    a.id ? `[id="${a.id}"]` : null,
+    stable(a.id) ? `[id="${a.id}"]` : null,
     a.classes?.length ? `${a.tag}.${a.classes.join(".")}` : null,
   ].filter((x): x is string => Boolean(x));
 

@@ -1,7 +1,7 @@
 # Anchored scope, and the value no row carries
 
 Type: prototype
-Status: partly built — findings 1 and 3 landed in `2431213` and measurably worked; findings 2, 4 and 5 open
+Status: partly built — findings 1 and 3 (`2431213`) and 4 and 5 (`HEAD`) built; finding 2 open
 Blocked by: — (07 resolved; reopened by the B1 oracle run)
 Assignee: jdre
 
@@ -332,24 +332,45 @@ render.
 The tell is in the facts already, inside **one** collect, with no second observation needed:
 
 ```
-probe-04/010-collect.json   <input name="sf-id72"   title="ID"   value="19753902">
-                            <input name="sf-name73" title="Name" value="e2eDevice">
-                            <input name="sf-type74" title="Type" value="e2eDeviceType">
+the widget after the first full save cycle
+   name=sf-id72  name=sf-name73  name=sf-type74
+   id=idStatus75  id=nameStatus77  id=typeStatus79
 ```
 
-Three siblings sharing a stem, with a counter running through them. An author does not name
-three fields that way; a loop does.
+One counter running through six different stems. An author does not number six fields that
+way from seventy-two; an allocator does.
 
-Checked against the corpus, because rung 3 exists on the strength of humans writing `[name]`
-398 times: of **427** human `[name]`/`[formcontrolname]` literals, **2 end in digits** —
-`field1` and `field2`, which are arguably the same smell. (A first count said 4; the other two
-were `sf-name73` read back out of this run's own emitted spec, which the intervention left on
-disk.)
+**A first draft of this rule was wrong, and the facts caught it.** It said *"a stem shared with
+a sibling, with a numeric remainder"* — which does not fire on `sf-*` at all (the stems differ)
+and *does* fire on `groupradiocontentclass0..4`, which the same run observed unchanged across
+four separate collects, including the drawer's first, second and third openings. Those are
+stable. Writing the rule from one glance at three rows would have refused the stable family and
+kept the generated one.
 
-**Decision to take:** rung 3 refuses a `name`, `formcontrolname` or `id` whose stem is shared
-with a sibling row and whose remainder is a number, and falls through to the next rung. It
-costs 0.5% of human practice and it is the fifth entry on ticket 07 Part 2's hazard list:
-*an identifier the framework generates per render*.
+What separates them is measured, on both sides:
+
+| | observed suffixes |
+| --- | --- |
+| generated, this run | 72, 73, 74, 75, 77, 79 |
+| stable, this run | `groupradio*class` **0–4**, `nodeLabel` **2**, `c8y-grid-colA-…` **0** |
+| human, 846 corpus `[name]`/`[formcontrolname]`/`[id]` literals | 15 end in a digit, and **every suffix is 0 or 1** — `groups0`, `apps0`, `stopSequence0`, `stopSequence1`, `headerKey0`, `headerKey1`, `field1`, `field2`, `value-0` |
+
+A person numbering fields by hand counts the things on the page and stays small. A framework
+allocator counts every field it has rendered this session and is past ten before the first
+screen finishes. Nothing measured lands between 1 and 72.
+
+(The corpus count first came back as 4 digit-suffixed names rather than 2; the other two were
+`sf-name73` read back out of this run's own emitted spec, which the intervention left on disk.)
+
+**Decision taken:** rung 3 ignores a `name`, `formcontrolname` or `id` whose value ends in
+**two or more digits reading ten or greater**. It refuses the descriptor, never the row — the
+ladder falls through, which for B1's input gives `[title="Name"]`, the label the form renders
+and does not renumber. Measured cost against human practice: **zero**, with nine of slack
+either side. The same filter applies to an ancestor's `id`, which had the identical exposure.
+
+It is the fifth entry on ticket 07 Part 2's hazard list: *an identifier the framework allocates
+per render*. Known gap: a single-digit allocator (`sf-name7`) passes, because a one-digit
+suffix is indistinguishable from a hand-written index. An allocator does not stay there long.
 
 Note what this does **not** need: a second probe run. Ticket 07 closed second-state
 re-observation as too expensive, and this hazard is visible from siblings in a single collect.
@@ -379,7 +400,7 @@ refusal was written to protect, and the refusal, meeting the heal guard's freeze
 non-scaffolding step, makes a mocked-style IR unable to ever re-probe. Every mocked oracle —
 B1, B2, B3 — is one heal away from this.
 
-**Decision to take:** in probe mode a `stub` is a note, not an error. It says which stubs the
+**Decision taken:** in probe mode a `stub` is a note, not an error. It says which stubs the
 probe dropped and why, and the run continues.
 
 The assist itself is worth recording as a success: the model diagnosed a two-sided deadlock in

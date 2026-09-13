@@ -263,10 +263,17 @@ describe("style, which axis D grades and the linter can check", () => {
     expect(result.errors.map((e) => e.message).join("\n")).toMatch(/integration/);
   });
 
-  it("refuses a stub in a probe IR, whose job is to see the real response", () => {
+  // It used to refuse. That cost B1 its fourth run: to re-probe, a target goes back to
+  // `provisional`, which compiles as a probe IR - refused here, while the heal guard refused
+  // the only fix, because deleting a stub is deleting a non-scaffolding step. The compiler
+  // already drops every stub in probe mode and says so in the emitted spec, so the probe calls
+  // the real application either way. Dropping is not serving, and a mocked oracle has to be
+  // able to re-probe.
+  it("lets a probe IR carry a stub, and tells the model the probe dropped it", () => {
     const result = lintIr({ ...input([stub(), visit, TITLE]), mode: "probe" });
 
-    expect(result.errors.map((e) => e.message).join("\n")).toMatch(/probe/i);
+    expect(result.errors).toEqual([]);
+    expect(result.gaps.map((g) => g.hint).join("\n")).toMatch(/drops stub/);
   });
 });
 

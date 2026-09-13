@@ -264,3 +264,45 @@ describe("uniqueness measured over every descriptor a row could offer", () => {
     expect(r.ok && emitPath(r)).toBe(`cy.get('[id="z"]')`);
   });
 });
+
+describe("an identifier a framework allocated", () => {
+  // B1's fourth run died here. The ladder derived cy.get('input[name="sf-name73"]'), it passed
+  // after the first save cycle, and after the second the element did not exist - angular-schema-
+  // form renumbers on every render. The surface showed the allocator plainly: sf-id72,
+  // sf-name73, sf-type74, idStatus75, nameStatus77, typeStatus79. One counter, six stems.
+  //
+  // The threshold is measured, not chosen. Across 846 human [name]/[formcontrolname]/[id]
+  // literals in the two corpora, 15 end in a digit and every one of those suffixes is 0 or 1 -
+  // groups0, stopSequence1, headerKey0, field1. A person numbering fields by hand counts the
+  // things on the page and stays small; a framework allocator is global and is past ten before
+  // the first screen finishes rendering.
+  const input = (over: Partial<CandidateRow>): CandidateRow => ({
+    id: "s#1",
+    ancestors: [{ tag: "form" }],
+    tag: "input",
+    attrs: {},
+    classes: [],
+    text: "",
+    visibility: "visible",
+    actionable: true,
+    repeat: { siblingsLike: 1, index: 0 },
+    ...over,
+  });
+
+  it("is not a rung, however stable it looked on the run that observed it", () => {
+    const row = input({ attrs: { name: "sf-name73", title: "Name" } });
+
+    const hit = resolveSelector(row, [row], { exactly: 1 });
+
+    expect(hit.ok).toBe(true);
+    expect(hit.ok && emitPath(hit)).toBe(`cy.get('[title="Name"]')`);
+  });
+
+  it("still trusts the small index a person writes by hand", () => {
+    const row = input({ attrs: { name: "stopSequence1" } });
+
+    const hit = resolveSelector(row, [row], { exactly: 1 });
+
+    expect(hit.ok && emitPath(hit)).toBe(`cy.get('input[name="stopSequence1"]')`);
+  });
+});
