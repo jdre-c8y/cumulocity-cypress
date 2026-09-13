@@ -77,6 +77,39 @@ export interface ClickBody {
   target: IrTarget;
 }
 
+/**
+ * Puts a value into a form control. One verb, and the compiler picks the Cypress call.
+ *
+ * Measured over 213 hand-written specs: `.type` appears in 115 of them (54%), `.clear` in 90,
+ * `.select` in 36, `.check` in 34. Until this verb existed the tool could not write the majority
+ * of the tests it exists to write, and nothing said so because neither of the first two oracles
+ * needed a form.
+ *
+ * The model names the intent; the deterministic half writes the code. The observed row already
+ * carries `tag` and `attrs.type`, which is enough to choose between `.select(v)`, `.check()` and
+ * `.clear().type(v)` - so this is the ladder's move applied to interaction, and it is why there
+ * is one verb here rather than four. `chooseFillCall` is the table.
+ *
+ * `fill` is an action, so it inherits `click`'s rules: a cardinality of one, and a target that
+ * is not `hidden`. It adds one of its own - **the target may not be provisional.** A click on
+ * the wrong element usually errors; a fill on the wrong input succeeds quietly and every fact
+ * after it is nonsense. Collect the form, cite the row, then fill it.
+ *
+ * The value is anchored like a fabricated body's: a literal must appear in the scenario contract,
+ * or be a capture or a value builder. A typed literal that appears nowhere in the contract is a
+ * value nobody asked for.
+ */
+export interface FillBody {
+  target: IrTarget;
+  /**
+   * What the control ends up holding. A checkbox or a radio takes a literal `true`/`false` - the
+   * emitted call is `.check()` or `.uncheck()`, so a `ref` there would emit one of them
+   * unconditionally and mean something the IR does not say. Everything else takes a string, a
+   * number, a capture or a builder.
+   */
+  value: IrValue;
+}
+
 /** A load-bearing wait, declared rather than inferred, and a legal way to satisfy an outcome. */
 export interface SettleBody {
   target: IrTarget;
@@ -207,6 +240,7 @@ export interface IrStep {
   captures?: string;
   visit?: VisitBody;
   click?: ClickBody;
+  fill?: FillBody;
   settle?: SettleBody;
   assert?: AssertBody;
   callRepoHelper?: CallRepoHelperBody;
@@ -228,6 +262,7 @@ export interface IrStep {
 export const VERBS = [
   "visit",
   "click",
+  "fill",
   "settle",
   "assert",
   "callRepoHelper",
@@ -247,7 +282,7 @@ export const PROBE_ONLY_VERBS: readonly Verb[] = ["collect"];
 export const ASSERTING_VERBS: readonly Verb[] = ["assert", "settle"];
 
 /** Verbs that reach the rendered page. An IR with none of them is not a UI e2e spec. */
-export const DOM_VERBS: readonly Verb[] = ["visit", "click", "settle", "assert", "collect"];
+export const DOM_VERBS: readonly Verb[] = ["visit", "click", "fill", "settle", "assert", "collect"];
 
 /**
  * Verbs that register a route before the application asks for it. All of them must be emitted
@@ -303,7 +338,7 @@ export function emitsLengthAssertion(cardinality: Cardinality | undefined): bool
 }
 
 export function targetOf(step: IrStep): IrTarget | undefined {
-  return step.click?.target ?? step.settle?.target ?? step.assert?.target;
+  return step.click?.target ?? step.fill?.target ?? step.settle?.target ?? step.assert?.target;
 }
 
 export function cardinalityOf(step: IrStep): Cardinality {

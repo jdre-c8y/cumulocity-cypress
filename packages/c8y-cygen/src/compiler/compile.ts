@@ -19,6 +19,7 @@ import {
   emitWaitFor,
   type EmitContext,
 } from "./emit.js";
+import { chooseFillCall, isRefusal } from "./fillCall.js";
 import type { EmittedStatement } from "./sourceMap.js";
 import {
   allSteps,
@@ -30,11 +31,12 @@ import {
   emitsLengthAssertion,
   type IrDocument,
   type IrStep,
+  type FillBody,
   type IrTarget,
   type SettleBody,
 } from "../ir/types.js";
 import type { EffectiveConventions } from "../conventions/types.js";
-import type { FactsDocument } from "../facts/types.js";
+import { findRow, type FactsDocument } from "../facts/types.js";
 
 export type CompileMode = "spec" | "probe";
 
@@ -98,6 +100,48 @@ function emitSettle(body: SettleBody, mode: CompileMode, stepId: string): string
     return `${base}${cardinality}${visible};`;
   }
   return `${base}.should(${emitString(body.state === "visible" ? "be.visible" : "exist")});`;
+}
+
+/**
+ * One value into one control, in whichever call the observed row calls for.
+ *
+ * The row comes out of the facts document and the call comes out of `chooseFillCall`, so the
+ * only thing the IR contributes is which control and what value - the same division of labour
+ * the ladder makes for selectors and `stub` makes for response bodies.
+ *
+ * Both back-ends emit this identically. A probe that skipped its fills would walk a different
+ * flow from the spec and collect the surfaces of a form nobody filled in, which is the fidelity
+ * argument the one-IR design rests on.
+ */
+function emitFill(body: FillBody, ctx: EmitContext, mode: CompileMode, stepId: string): string {
+  // Before `targetExpr`, which fails open in probe mode: it would emit a runtime-resolved
+  // element and leave this function with no row to read the call off. The linter refuses a
+  // provisional fill in both modes, so this is the second wall rather than the first.
+  if (isProvisional(body.target)) {
+    throw new CompileError(
+      `step '${stepId}': a fill needs a resolved target. The call it emits is read off the observed row, and a guess has no row.`
+    );
+  }
+  const base = targetExpr(body.target, mode, stepId);
+  const row = ctx.facts ? findRow(ctx.facts, body.target.fromRow) : undefined;
+  if (!row) {
+    throw new CompileError(
+      `step '${stepId}': fill targets row '${body.target.fromRow}', which no probe observed. The Cypress call is derived from the row, never chosen by the model.`
+    );
+  }
+  const chosen = chooseFillCall(row, body.value);
+  if (isRefusal(chosen)) {
+    throw new CompileError(`step '${stepId}': ${chosen.refuse}`);
+  }
+  if (chosen.call === "check") {
+    return `${base}.${chosen.checked ? "check" : "uncheck"}();`;
+  }
+  const operand = emitValue(body.value, ctx);
+  // `.clear()` first, always. 673 clears against 1058 types in the corpus: a human clears two
+  // thirds of the time and knows the field is empty the rest. A generated spec knows neither.
+  return chosen.call === "select"
+    ? `${base}.select(${operand});`
+    : `${base}.clear().type(${operand});`;
 }
 
 function emitAssert(body: AssertBody, ctx: EmitContext, mode: CompileMode, stepId: string): string {
@@ -190,6 +234,8 @@ function emitStepStatement(
       return emitWaitFor(step.waitFor!, step.id);
     case "click":
       return `${targetExpr(step.click!.target, mode, step.id)}.click();`;
+    case "fill":
+      return emitFill(step.fill!, ctx, mode, step.id);
     case "settle":
       return emitSettle(step.settle!, mode, step.id);
     case "assert":

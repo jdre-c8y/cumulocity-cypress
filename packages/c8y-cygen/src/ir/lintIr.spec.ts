@@ -290,7 +290,7 @@ describe("the broken-file corpus", () => {
       (ir.outcomes[0] as { satisfiedBy: string[] }).satisfiedBy = ["open-events"];
     });
 
-    expect(messages(input)).toMatch(/A dump is not an assertion/);
+    expect(messages(input)).toMatch(/a dump is not an assertion, and neither is an action/);
   });
 
   it("catches two verbs in one step", () => {

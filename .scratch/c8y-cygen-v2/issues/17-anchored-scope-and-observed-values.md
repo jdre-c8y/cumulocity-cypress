@@ -1,7 +1,7 @@
 # Anchored scope, and the value no row carries
 
 Type: prototype
-Status: partly built — findings 1, 3, 4, 5 built and measured; findings 2, 6 and 7 open. **B1 PASSES** as of run six. B1's spec now passes; axis A fails only on the first-attempt rule.
+Status: partly built — findings 1, 3, 4, 5, 6 and 7 built and measured; **finding 2 (the anchored scope rung) is the only one open**, and it is deferred as B4's dependency. **B1 PASSES** as of run six. B1's spec now passes; axis A fails only on the first-attempt rule.
 Blocked by: — (07 resolved; reopened by the B1 oracle run)
 Assignee: jdre
 

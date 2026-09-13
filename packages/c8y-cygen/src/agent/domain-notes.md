@@ -99,6 +99,43 @@ parameter list, so it is what the command actually accepts.
    compiler places the `.then()` blocks. You describe the test; you do not reason about
    JavaScript's async scope.
 
+## Filling in a form: one verb, and you do not choose the Cypress call
+
+`fill` puts a value into a control. There is no `type`, no `select` and no `check` - the
+compiler reads the row you cite and writes the right call:
+
+| what the probe observed | what is emitted |
+| --- | --- |
+| `<select>` | `.select(value)` |
+| `<input type="checkbox">` | `.check()` or `.uncheck()` |
+| `<input type="radio">` | `.check()` |
+| any other input, or a `<textarea>` | `.clear().type(value)` |
+
+```json
+{ "id": "choose-render-type",
+  "fill": { "target": { "resolved": "cy.get('[formcontrolname=\"renderType\"]')", "fromRow": "config#12" },
+            "value": { "ref": "renderType" } } }
+```
+
+Three things follow from that, and each of them is checked:
+
+- **A fill's target may never be `provisional`.** This is the one place a `fill` and a `click`
+  differ. A click on the wrong element usually errors, so a wrong guess costs the probe run it
+  was always risking; a fill on the wrong input **succeeds quietly**, and every surface collected
+  after it describes a state nobody asked for. So put a `collect` on the form, read the control's
+  row off the facts, and cite it. If that means one more probe run, spend it.
+- **A checkbox or a radio takes a literal `true` or `false`, never a reference.** The emitted
+  call is `.check()` or `.uncheck()`, so a name would pick one of them regardless of what it
+  holds. Everything else takes a string, a number, a capture or a builder. The facts summary
+  marks an input's `type=` for exactly this reason.
+- **What you type must be in the contract.** Same rule as a fabricated body: a literal must
+  appear in the scenario contract, or come from a capture or a value builder. What a test enters
+  into a form is part of the scenario, and a value nobody wrote down is a value nobody can grade.
+
+The field is always cleared first. `.selectFile` does not exist here; neither does a conditional
+"click this only if that is collapsed". If the flow genuinely needs one, say so with an `assist`
+rather than working around it.
+
 ## Intercepts: three jobs, and only one of them is fabrication
 
 `cy.intercept` does three different things in this house, and this design gives the two it
@@ -159,7 +196,8 @@ element, not the content it holds: `span data-cy=c8y-dashboard-list--device-widg
 Properties"` is a widget-type label, and an assertion that it contains a device name fails on
 every run. Read the text before you pick the row.
 
-A line may also carry `value="..."`. That is what an input, textarea or select **holds**, and on
+A line may also carry `type=` and `value="..."`. `type=` appears on inputs and tells you which
+call a `fill` on that row would emit. `value="..."` is what an input, textarea or select **holds**, and on
 many surfaces it is the only place a value is written down - a form shows a device's name in a
 field, not as text anywhere. Assert on it with `extract: "value"`. You may only do that against
 a row whose line shows a value: an assertion on content no probe observed is refused, exactly as

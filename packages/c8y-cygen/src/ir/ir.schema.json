@@ -186,6 +186,17 @@
           "properties": { "target": { "$ref": "#/definitions/target" } }
         },
 
+        "fill": {
+          "type": "object",
+          "description": "Puts a value into a form control. ONE verb: the compiler reads the observed row's tag and type and emits .select(v), .check()/.uncheck(), or .clear().type(v). The target may NOT be provisional - collect the form, cite the row, then fill it. A checkbox or a radio takes a literal true/false; everything else takes a string, a number, a capture or a builder.",
+          "required": ["target", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "target": { "$ref": "#/definitions/target" },
+            "value": { "$ref": "#/definitions/value" }
+          }
+        },
+
         "settle": {
           "type": "object",
           "required": ["target", "state"],

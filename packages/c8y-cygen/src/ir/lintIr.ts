@@ -15,6 +15,7 @@
  */
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import { readPackageAsset } from "../support/assets.js";
+import { chooseFillCall, isRefusal } from "../compiler/fillCall.js";
 import { emitPath, resolveSelector } from "../ladder/ladder.js";
 import { findRequest, findRow, findSurfaceOf, type FactsDocument } from "../facts/types.js";
 import type { EffectiveConventions } from "../conventions/types.js";
@@ -169,6 +170,7 @@ function stepValues(step: IrStep): IrValue[] {
   for (const mutation of step.stub?.mutations ?? []) collect(mutation.value);
   collect(step.request?.body);
   collect(step.assert?.operand);
+  collect(step.fill?.value);
   return out;
 }
 
@@ -420,6 +422,23 @@ export function lintIr(input: LintInput): LintResult {
       });
     }
 
+    // --- what a fill types is anchored, exactly as a fabricated body is ----------------
+    // Ticket 02's anchoring rule, one verb over. A `request` body must trace to the contract
+    // because it creates real state; a fill must trace to it because it is the flow's own
+    // input, and a value nobody asked for is a value nobody can grade. Booleans are exempt by
+    // construction - `true` is a checked box, not a string anyone wrote down.
+    if (step.fill) {
+      walkValues(step.fill.value, (v) => {
+        if (v === null || typeof v === "object") return;
+        if (!isAnchoredLiteral(v, contract)) {
+          add(
+            where,
+            `this fill types '${String(v)}', which appears nowhere in the scenario contract. What a test enters into a form is part of the scenario: name it there, or reach it through a capture or a value builder.`
+          );
+        }
+      });
+    }
+
     // --- an assertion the compiler could emit -------------------------------------------
     // Refused here and not only in the compiler. The schema puts `negate` alongside a four-value
     // `compare` enum with nothing relating them, so the model will try this combination - and a
@@ -542,6 +561,24 @@ export function lintIr(input: LintInput): LintResult {
     const target = targetOf(step);
     if (!target) continue;
 
+    // A fill may not guess. This is the one place a `click` and a `fill` part company, and the
+    // reason is what each does when it lands on the wrong element: a click on the wrong thing
+    // usually errors, so a wrong guess costs the probe run it was always risking. A fill on the
+    // wrong input *succeeds* - the value goes somewhere, the form looks filled in, and every
+    // surface collected after it describes a state the scenario never asked for.
+    //
+    // So the remedy is stated rather than guessed at: collect the form, cite the row, fill it.
+    // That costs a probe run on flows where the form is the last thing the probe reaches, and
+    // it is the cheaper of the two mistakes.
+    if (step.fill && isProvisional(target)) {
+      add(
+        where,
+        `a fill cannot use a provisional target: the Cypress call is read off the observed row - a <select> takes .select, a checkbox takes .check, a text field takes .type - and a guess has no row. Put a 'collect' on the form, then cite the control's row here.`,
+        "selector-absent"
+      );
+      continue;
+    }
+
     if (isProvisional(target)) {
       // `matches` is a regular expression over visible text - it exists for a state-dependent
       // label like /Change provider|Add global provider/. A CSS selector put there is a valid
@@ -616,14 +653,29 @@ export function lintIr(input: LintInput): LintResult {
     //
     // Refused in both modes: a click that cannot happen ends a probe run part-way and loses
     // every surface after it, which is more expensive than the turn this costs.
-    if (step.click && row.visibility === "hidden") {
+    if ((step.click || step.fill) && row.visibility === "hidden") {
       const surface = findSurfaceOf(facts, target.fromRow);
       add(
         where,
-        `row '${target.fromRow}' was observed hidden on surface '${surface?.label ?? "?"}', and a click waits for an element to be visible. If it becomes visible in a later state, observe it there and cite that row; if a step has to reveal it first, add that step.`,
+        `row '${target.fromRow}' was observed hidden on surface '${surface?.label ?? "?"}', and a ${step.click ? "click" : "fill"} waits for an element to be visible. If it becomes visible in a later state, observe it there and cite that row; if a step has to reveal it first, add that step.`,
         "selector-absent"
       );
       continue;
+    }
+
+    // --- the call this fill would emit, asked of the facts rather than of the model -------
+    // The compiler throws on a refusal here, and a throw during a spec compile ends the run
+    // while a lint error costs a turn. Every rule in this file is here for that reason.
+    //
+    // Both modes. A probe fills the form for real - dropping its fills would walk a different
+    // flow from the spec - so a fill the compiler cannot emit ends a probe run part-way and
+    // loses every surface after it.
+    if (step.fill) {
+      const chosen = chooseFillCall(row, step.fill.value);
+      if (isRefusal(chosen)) {
+        add(where, chosen.refuse, "selector-absent");
+        continue;
+      }
     }
 
     // An operand read out of the page is the same claim a selector makes, and had no check.
@@ -675,8 +727,12 @@ export function lintIr(input: LintInput): LintResult {
   //
   // What is left is provable: an intercept with no visit and no click after it can never fire.
   // Setup is exempt by construction - it compiles to beforeEach, which runs before the body.
+  // A fill counts. Typing into a search box fires a query and choosing from a select fires a
+  // change that saves, so an intercept registered before a fill and after the last click can
+  // still fire - and a rule that refused it would spend a turn telling the model to move
+  // working code.
   const triggersRequest = (step: IrStep): boolean =>
-    step.visit !== undefined || step.click !== undefined;
+    step.visit !== undefined || step.click !== undefined || step.fill !== undefined;
   for (let i = 0; i < ir.steps.length; i++) {
     const step = ir.steps[i] as IrStep;
     const verb = verbsOf(step).find((v) => INTERCEPT_VERBS.includes(v));
@@ -690,13 +746,16 @@ export function lintIr(input: LintInput): LintResult {
         `steps.${step.id}`,
         `'${verb}' is registered after the last step that could trigger a request, so the route can never fire and nothing will report that. An intercept goes above the visit or click whose traffic it matches, or into setup.`
       );
-    } else if (lastVisit >= 0 && !before.slice(lastVisit + 1).some((s) => s.click !== undefined)) {
+    } else if (
+      lastVisit >= 0 &&
+      !before.slice(lastVisit + 1).some((s) => s.click !== undefined || s.fill !== undefined)
+    ) {
       // The page load this follows has already asked for everything it is going to ask for, and
       // registering a route afterwards is accepted in silence - so the page renders against the
       // real tenant while the spec reads as fully mocked.
       //
-      // A click between the visit and here is the exception, and the only one: it means the flow
-      // has moved on and this route is for traffic some later interaction will trigger. Two
+      // A click or a fill between the visit and here is the exception: it means the flow has
+      // moved on and this route is for traffic some later interaction will trigger. Two
       // visits with stubs between them land in this branch too, and correctly - registering a
       // route early always works, so moving it above the first visit costs nothing.
       add(
@@ -825,12 +884,17 @@ export function lintIr(input: LintInput): LintResult {
         const there = targetOf(next);
         if (!there || isProvisional(here) || isProvisional(there)) continue;
         if (here.resolved !== there.resolved) continue;
-        const impliedByNext = next.click !== undefined || step.settle.state === "exists";
+        // `.type()` and `.select()` require actionability exactly as `.click()` does, so a
+        // settle(visible) in front of either buys nothing.
+        const impliedByNext =
+          next.click !== undefined || next.fill !== undefined || step.settle.state === "exists";
         if (!impliedByNext) continue;
         add(
           `steps.${step.id}`,
           `settles ${here.resolved}, which '${next.id}' already ${
-            next.click ? "waits for - a click retries until the element is actionable, which means visible" : "implies - an assertion retries until the element exists"
+            next.click || next.fill
+              ? `waits for - a ${next.click ? "click" : "fill"} retries until the element is actionable, which means visible`
+              : "implies - an assertion retries until the element exists"
           }. Delete this step; it satisfies no outcome and asserts nothing the next line does not.`
         );
       }
@@ -867,7 +931,7 @@ export function lintIr(input: LintInput): LintResult {
         if (mode === "spec") {
           add(
             `outcomes[${outcome.id}]`,
-            `satisfied by a '${verb}' step. A dump is not an assertion.`,
+            `satisfied by a '${verb}' step, which asserts nothing. Only an 'assert' or a 'settle' puts a claim in the emitted spec - a dump is not an assertion, and neither is an action.`,
             "outcome-unmappable"
           );
         }

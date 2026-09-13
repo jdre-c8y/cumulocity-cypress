@@ -52,6 +52,11 @@ const FROZEN_STEP_FIELDS = [
   "assert.cardinality",
   "settle.cardinality",
   "settle.state",
+  // What the flow enters into a form is intent, not mechanics. Re-pointing a fill at a
+  // different control is a targeting fix and stays free; changing what it types is changing the
+  // scenario, and it is the heal turn's cheapest route to green - pick the render type the form
+  // already shows and the assertion after it passes for nothing.
+  "fill.value",
 ] as const;
 
 function flatten(value: unknown, prefix: string, into: Map<string, unknown>): void {
@@ -181,6 +186,7 @@ function frozenVars(ir: IrDocument): Set<string> {
       scan(step.assert.operand);
       scan(step.assert.cardinality);
     }
+    if (step.fill) scan(step.fill.value);
   }
   return out;
 }

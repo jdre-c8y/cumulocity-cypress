@@ -1,7 +1,8 @@
 # The interaction vocabulary: c8y-cygen cannot fill in a form
 
 Type: grilling
-Status: open
+Status: **decided and built.** `fill` is in, Q1 is option 3, Q2 is the anchored matcher. B2 is
+unblocked and has not been run.
 Blocked by: — (raised by B2, which cannot be attempted without it)
 Assignee: jdre
 
@@ -106,6 +107,32 @@ Two details the measurements settle:
   a second way to say the same thing. Ticket 12's probe uses it internally; the emitted spec
   does not need it.
 
+## As built
+
+`fill` takes a target and an `IrValue`, and `chooseFillCall` reads the Cypress call off the
+observed row. One addition to the proposal, and it is the one thing measurement could not have
+told us — it came out of asking what each verb does when it lands on the wrong element:
+
+> **A fill's target may never be `provisional`.** A click on the wrong element usually errors, so
+> a wrong guess costs the probe run it was always risking. A fill on the wrong input *succeeds*.
+> The value goes somewhere, the form looks filled in, and every surface collected after it
+> describes a state the scenario never asked for.
+
+So a fill is refused in **both** modes until a probe has collected the form and the IR cites the
+control's row. That costs one extra probe run on a flow whose form is the last thing the probe
+reaches. It is the cheaper of the two mistakes, and it is the claim most likely to be wrong —
+see *What would falsify this*.
+
+Everything else is as proposed: always `.clear()` before `.type()`; a checkbox or radio takes a
+literal `true`/`false` (a `ref` would pick `.check()` or `.uncheck()` regardless of what it
+holds, which is the IR saying something it does not mean); the value is anchored to the contract;
+`fill.value` is frozen on a heal turn, because re-pointing a fill is a targeting fix and
+re-typing one is changing the scenario. A file input, and a `<div>` wearing a select's clothes,
+are both refused by name rather than defaulted.
+
+The facts summary now marks an input's `type=`. Without it the model cannot tell a checkbox from
+a text field, and the difference decides both the call and the shape of the value.
+
 ## The two questions this ticket has to answer
 
 ### Q1 — the conditional interaction
@@ -133,8 +160,24 @@ Three ways out, and the ticket has to pick one:
    asserts, it does not fix* — and it makes B2's reference something the generated spec is
    deliberately **better** than.
 
-Option 3 is the current recommendation, on the same reasoning that keeps `cy.wait(<number>)` out
-(142 uses, 27 specs, and B2's own reference apologises for its one with an eslint-disable).
+**Decided: option 3.** A test asserts; it does not repair. The contract states the starting state
+as a precondition and the spec asserts it, which makes the generated spec deliberately *better*
+than B2's reference on this line rather than merely different.
+
+Three things carry the decision:
+
+- The shape is rare — 29 uses in 18 of 213 specs, 8%. Branching in the IR is a large, permanent
+  capability bought for one eighth of the corpus.
+- It is the same reasoning that keeps `cy.wait(<number>)` out: 142 uses across 27 specs, and
+  B2's own reference apologises for its one with an eslint-disable. Frequency in the corpus is
+  evidence about what humans do under time pressure, not about what the tool should write.
+- Option 1 is not actually different from option 3 in the passing case, and is worse in the
+  failing one. Both author for the state the probe saw; option 3 additionally *says so*, so when
+  the state is not what the contract claimed the spec fails at the assertion instead of silently
+  taking the other branch.
+
+What this costs is written down under *What would falsify this*: if the panel's state genuinely
+is not determined by the flow, this produces a flaky spec and option 2 wins.
 
 ### Q2 — the prefix-ambiguous text
 
@@ -149,20 +192,47 @@ style: of **1611** `contains()` calls in the corpus, **11 carry a regex** and 5 
 anchored. So the fix is correct and almost unprecedented — it would be right on axis A and
 unusual on axis D.
 
-B2 cannot be attempted without deciding this, because it is B2's central target.
+**Decided: the anchored matcher.** `cy.contains(sel, /^e2eSeries$/)`.
+
+Right on axis A beats familiar on axis D, and the alternative is not "familiar" so much as
+"flaky": `.first()` resolves the ambiguity by DOM order, which is a property of the render and
+not of the test. Ticket 07 already called it a latent flake when a human wrote it; the tool
+writing it deliberately would be worse, because the tool is the half that is supposed to know.
+
+Two conditions on the decision, so it does not become a licence:
+
+- The anchored matcher is the **ladder's** move, not the model's. It belongs where a measured
+  ambiguity forces it, and nowhere else — 11 regexes in 1611 `contains()` calls is the house
+  style, and a tool that reached for one by preference would be writing a dialect.
+- The axis-D grader is told it is a deliberate deviation, with this ticket as the reason. An
+  unexplained deviation and a justified one score the same only if the grader is told which is
+  which.
+
+This is not yet built. The ladder currently measures two matches and routes to assist, which is
+correct behaviour for an ambiguity it cannot resolve; teaching it to emit an anchored matcher
+when the ambiguity is *exactly* prefix-containment is a change to `resolveSelector`, and it is
+the next piece of work after this ticket.
 
 ## Order
 
-1. `fill`, with the compiler picking the call from the observed row.
-2. Q1 and Q2 decided — they are decisions, not code, and both are cheap once argued.
-3. Run B2.
+1. ~~`fill`, with the compiler picking the call from the observed row.~~ Built.
+2. ~~Q1 and Q2 decided.~~ Option 3, and the anchored matcher.
+3. The anchored matcher in the ladder — Q2's decision is argued, not implemented.
+4. Run B2.
 
 ## What would falsify this
 
 - **`fill` turns out to need the model to say which Cypress verb.** The whole proposal rests on
   the observed row being enough to choose. If a row exists where it is not — a custom component
   that looks like a div and behaves like a select — the verb splits into three and the argument
-  for one verb goes with it.
+  for one verb goes with it. The fixture carries that div on purpose; today it is refused by
+  name, which is a diagnostic rather than an answer.
+
+- **Refusing a provisional fill costs a probe run that matters.** The claim is that a form is
+  something you collect before you touch, so the extra run is one the flow needed anyway. If B2
+  or a later oracle spends a whole run only because a fill could not guess, the answer is a
+  runtime dispatch in the probe back-end — the throwaway spec resolves the element and picks the
+  call in the browser — and the refusal narrows to spec mode.
 - **Q1's option 3 makes B2 unwritable.** If the panel's state genuinely is not determined by the
   flow, "assert rather than repair" produces a flaky spec and option 2 wins.
 - **B3 or B4 needs `.selectFile`, `.invoke` or `within`.** Each was left out on the grounds that

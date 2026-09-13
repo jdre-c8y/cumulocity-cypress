@@ -333,6 +333,11 @@ export function summariseFacts(
         .filter(Boolean)
         .join("  ");
       const marks = [
+        // An input's `type` decides which Cypress call a `fill` becomes - a checkbox takes
+        // .check() and a literal true, a text field takes .type() and a string - so without it
+        // the model has to guess, and a guess costs a turn. Inputs only: this is the largest
+        // text sent to a model, and a <button type="submit"> settles nothing.
+        row.tag === "input" && row.attrs.type ? `type=${row.attrs.type}` : "",
         row.actionable ? "actionable" : "",
         row.visibility !== "visible" ? row.visibility : "",
         row.repeat.siblingsLike > 1 ? `1 of ${row.repeat.siblingsLike}` : "",
