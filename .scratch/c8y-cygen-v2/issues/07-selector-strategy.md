@@ -298,3 +298,36 @@ bare `[type="checkbox"]`.
   matched more than one element"*. It is now *refuses a mismatch against declared cardinality*.
 - [Ground truth](02-ground-truth-and-setup-path.md)'s `Q8(c)` is closed: no preventive
   second-state re-observation.
+
+---
+
+## Reopened in part by the B1 oracle run (2026-09-13)
+
+B1 was the first oracle to run end-to-end against a live tenant. It scored FAIL, and the
+post-mortem lands three things on this ticket. They are argued and sized in
+[Anchored scope, and the value no row carries](17-anchored-scope-and-observed-values.md);
+the short version, and what it changes here:
+
+- **The rungs and the ancestor vocabulary are confirmed, not reopened.** Measured again over
+  609 compound scopes in the 214-spec corpus: humans scope by custom tag (432), `tag.class`
+  (68) and `#id` (9). The number of human scopes that `AncestorDescriptor` cannot express is
+  **zero**. Do not widen it.
+
+- **Q5's search shape is incomplete.** The ladder can only express *ancestor-with-its-own-
+  descriptor → leaf*. It has no form for an element identified by **what sits next to it** —
+  `.parent().find(…)`, `.parents(SEL).find(…)`, `.closest(SEL).find(…)`. That shape appears in
+  238 chains across **71 of 214 specs (33%)**, and it is how B1's hand-written oracle reaches
+  the asset-selector chip. Ticket 17 proposes an **anchored scope** rung costing no probe run.
+
+- **The `[value]` ban reached past selection into observation.** Banning `[value]` as a
+  selector part is right and stays. Enforcing it by giving the value no field to arrive in is
+  what broke: `extract: "value"` exists in the IR and compiles, but no fact can ever justify
+  one, and that is 100 assertions across 36 of 214 specs. B1 searched all five post-save
+  surfaces for the device name and found it in **0 of 262 rows** while it was on the screen.
+
+- **A fourth Part 2 hazard, and the cheapest one yet.** A `data-cy` whose name describes the
+  component that owns the element rather than the content it holds —
+  `span[data-cy="c8y-dashboard-list--device-widget"]` reading *"Asset Properties"*. The model
+  chose it three times across two spec runs. Unlike hazards 1–3 it needs no second state to
+  catch: the contradicting text was already in the facts, and `summariseFacts` dropped it,
+  because a row's label shows its `data-cy` **or** its text and never both.

@@ -10,11 +10,17 @@ oracle benchmark — ready to hand to a separate implementation effort that buil
 This map plans; it does not implement. Reaching the destination produces a document,
 not a working generator.
 
-**Status: deciding complete.** Sixteen tickets, sixteen resolved; the frontier and the fog are
-both empty. What remains is not a decision but one act of writing — the **design record**, whose
-shape and location [Deliverable assembly](issues/16-deliverable-assembly.md) fixed. When that
-lands in `packages/c8y-cygen/`, this map is history: it stays here, unedited, as the effort's own
-record.
+**Status: deciding complete; the design record is written and lives in `packages/c8y-cygen/`,
+whose shape and location [Deliverable assembly](issues/16-deliverable-assembly.md) fixed. This
+map is now history and stays unedited, with one exception below.**
+
+The exception is what the map was built to allow. Building the design produced the first live
+oracle run, and B1 found three things the deciding had not — one of them a decision ticket 07
+took and got wrong. [Anchored scope, and the value no row carries](issues/17-anchored-scope-and-observed-values.md)
+argues and sizes all three, and amends [Selector ladder](issues/07-selector-strategy.md).
+Measurement overturning a resolved ticket is the map working, not the map reopening. Two of the
+three were latent in the corpus all along and nobody thought to measure them; the third was
+invisible until a model chose against a summary and lost.
 
 ## Notes
 

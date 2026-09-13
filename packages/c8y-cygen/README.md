@@ -7,7 +7,9 @@ This is the **B0 slice**: the thinnest thing that can generate a spec for the B0
 it. Not a feature-complete c8y-cygen — the slice that produces the first real number. A FAIL on B0
 is a successful outcome, provided the attempt log explains it; an unmeasured design is not.
 
-Sources of authority, in order: the sixteen resolved tickets in `.scratch/c8y-cygen-v2/issues/`,
+Sources of authority, in order: the seventeen tickets in `.scratch/c8y-cygen-v2/issues/` —
+sixteen resolved, plus `17-anchored-scope-and-observed-values.md`, which the first live B1 run
+reopened against ticket 07 and which is **not yet built** —
 the ubiquitous language in `.scratch/c8y-cygen-v2/CONTEXT.md`, the acceptance contract in
 `.scratch/c8y-cygen-v2/benchmark/README.md`, and `PLAN-01-b0-slice.md` beside this file.
 
