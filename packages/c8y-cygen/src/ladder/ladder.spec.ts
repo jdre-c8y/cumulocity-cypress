@@ -1,20 +1,6 @@
 import { resolveSelector, emitPath, MAX_PARTS } from "./ladder.js";
+import { row } from "../testing/rows.js";
 import type { CandidateRow } from "../facts/types.js";
-
-function row(id: string, over: Partial<CandidateRow> = {}): CandidateRow {
-  return {
-    id,
-    ancestors: [],
-    tag: "div",
-    attrs: {},
-    classes: [],
-    text: "",
-    visibility: "visible",
-    actionable: false,
-    repeat: { siblingsLike: 1, index: 0 },
-    ...over,
-  };
-}
 
 /** The event detail panel B0 asserts against, as one probe would have collected it. */
 const detailPanel: CandidateRow[] = [

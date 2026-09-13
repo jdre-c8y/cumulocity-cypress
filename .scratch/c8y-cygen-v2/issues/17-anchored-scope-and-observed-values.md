@@ -1,7 +1,7 @@
 # Anchored scope, and the value no row carries
 
 Type: prototype
-Status: partly built — findings 1, 3, 4, 5, 6 and 7 built and measured; **finding 2 (the anchored scope rung) is the only one open**, and it is deferred as B4's dependency. **B1 PASSES** as of run six. B1's spec now passes; axis A fails only on the first-attempt rule.
+Status: partly built — findings 1, 3, 4, 5, 6 and 7 built and measured; **finding 2 (the anchored scope rung) is the only one open**, and as of 2026-09-13 it is **B2's blocker**, not merely B4's dependency — see the note under finding 2. **B1 PASSES** as of run six. B1's spec now passes; axis A fails only on the first-attempt rule.
 Blocked by: — (07 resolved; reopened by the B1 oracle run)
 Assignee: jdre
 
@@ -173,6 +173,27 @@ excluded, see below): **155 expressible (79%), 42 refused** — and the 42 are e
 is not an ancestor the two rows share, so it would need a second rule rather than a wider one.
 
 The anchored scope counts as **one part**, so the three-part cap is unchanged.
+
+### Promoted to B2's blocker (2026-09-13)
+
+This finding was deferred as B4's dependency. It is now what stops B2.
+
+[Ticket 18](18-interaction-vocabulary.md) Q2 decided an anchored matcher —
+`cy.contains(sel, /^e2eSeries$/)` — for the one target ticket 07 left unresolved, which is B2's
+`cy.contains('c8y-datapoint-selector-list-item', 'e2eSeries').find('select[formcontrolname="renderType"]')`.
+Building it showed the decision reached past what it could hold. Cypress tests a `contains`
+regex against the element's **whole subtree text**; a candidate row records the element's **own**
+text. On a leaf those are one string, and the matcher works. On a wrapper holding a label, a
+select and its options they are nothing alike, so `/^\s*e2eSeries\s*$/` on the list item matches
+**zero elements** — and it fails as a Cypress timeout rather than as a count the ladder could
+refuse. The plain string carries a human through precisely because a substring test tolerates
+that gap.
+
+So Q2 anchors a leaf and never a scope, and B2's line splits in two: the leaf half is the
+anchored matcher, and the scope half is this rung — reach the element that carries the text,
+then walk out to the component that holds it. Nothing here changes; it is the same
+`.closest(SEL).find(…)` hop, on an anchor that happens to be identified by text rather than by
+`[data-cy]`.
 
 ### It solves B1's chip exactly, and costs no probe run
 

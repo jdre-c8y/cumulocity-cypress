@@ -9,10 +9,25 @@
  * the selector that lands in the spec, which is what makes a hallucinated selector impossible
  * rather than merely detectable.
  */
+import { MAX_TEXT } from "../probe/describeElement.js";
 import type { AncestorDescriptor, CandidateRow } from "../facts/types.js";
 
+/**
+ * The `cy.contains(tag, text)` idiom.
+ *
+ * `anchored` turns the emitted matcher from the string into `/^\s*text\s*$/`. Ticket 18 Q2:
+ * Cypress matches a substring, so `'e2eSeries'` also matches `'e2eSeries2'` - and the
+ * alternative to an anchored matcher is `.first()`, which resolves the ambiguity by DOM order.
+ * Reorder the series and the test silently asserts against the other one.
+ */
+export interface TextDescriptor {
+  tag: string;
+  text: string;
+  anchored?: true;
+}
+
 /** A descriptor is either a CSS part or the `cy.contains(tag, text)` idiom. */
-export type Descriptor = string | { tag: string; text: string };
+export type Descriptor = string | TextDescriptor;
 
 /** How many elements a step declares it expects. Refusal fires on a mismatch against this. */
 export type Cardinality = { exactly: number } | { atLeast: number };
@@ -163,18 +178,22 @@ const leafDescriptors = (r: CandidateRow): Descriptor[] => RUNGS.flatMap((g) => 
 
 function sameDescriptor(a: Descriptor, b: Descriptor): boolean {
   if (typeof a === "string" || typeof b === "string") return a === b;
-  return a.tag === b.tag && a.text === b.text;
+  return a.tag === b.tag && a.text === b.text && a.anchored === b.anchored;
 }
+
+/** Cypress's own matching rule, which is what uniqueness has to be measured under. */
+const textMatches = (d: TextDescriptor, observed: string | undefined): boolean =>
+  d.anchored ? (observed ?? "") === d.text : (observed ?? "").includes(d.text);
 
 const matchesRow = (d: Descriptor, r: CandidateRow): boolean =>
   typeof d === "string"
     ? leafDescriptors(r).some((x) => typeof x === "string" && x === d)
-    : (!d.tag || d.tag === r.tag) && (!d.text || (r.text || "").includes(d.text));
+    : (!d.tag || d.tag === r.tag) && (!d.text || textMatches(d, r.text));
 
 const matchesAncestor = (d: Descriptor, a: AncestorDescriptor): boolean =>
   typeof d === "string"
     ? ancestorDescriptors(a).includes(d)
-    : (!d.tag || d.tag === a.tag) && (!d.text || (a.text || "").includes(d.text));
+    : (!d.tag || d.tag === a.tag) && (!d.text || textMatches(d, a.text));
 
 /**
  * A row matches a path when the last descriptor matches the row itself and every earlier
@@ -240,13 +259,32 @@ function acceptableCount(
   return count === target.repeat.siblingsLike && count >= cardinality.atLeast;
 }
 
+const isText = (d: Descriptor): d is TextDescriptor => typeof d === "object";
+
+/**
+ * Anchoring a text asserts that the text is the whole of what the element holds, so it can only
+ * be offered for a text the probe recorded whole. A row's text is cut at `MAX_TEXT`, and a cut
+ * text is a prefix of the real one - which is precisely what an anchored matcher cannot survive.
+ * The plain form tolerates the cut, because a prefix is still a substring.
+ */
+const anchorable = (d: Descriptor): d is TextDescriptor =>
+  isText(d) && d.text.length > 0 && d.text.length < MAX_TEXT;
+
+const anchor = (d: TextDescriptor): TextDescriptor => ({ tag: d.tag, text: d.text, anchored: true });
+
+interface LeafCandidate {
+  rung: number;
+  id: string;
+  d: Descriptor;
+}
+
 export function resolveSelector(
   target: CandidateRow,
   rows: CandidateRow[],
   cardinality: Cardinality
 ): LadderResult {
   const leaves = RUNGS.map((g) => ({ rung: g.n, id: g.id, d: rungOf(g, target) })).filter(
-    (x): x is { rung: number; id: string; d: Descriptor } => x.d !== null
+    (x): x is LeafCandidate => x.d !== null
   );
 
   if (leaves.length === 0) {
@@ -258,40 +296,73 @@ export function resolveSelector(
   }
 
   const scopes = scopeCandidates(target);
-  const solutions: LadderHit[] = [];
 
-  const consider = (path: Descriptor[], leafRung: number, scopeRung: number, via: string) => {
-    const n = matchCount(path, rows);
-    if (!acceptableCount(n, cardinality, target)) return;
-    solutions.push({
-      ok: true,
-      path,
-      leafRung,
-      scopeRung,
-      via,
-      cardinality,
-      observed: n,
-    });
-  };
+  const search = (
+    leafSet: LeafCandidate[],
+    scopeSet: ScopeCandidate[]
+  ): LadderHit | undefined => {
+    const solutions: LadderHit[] = [];
+    const consider = (path: Descriptor[], leafRung: number, scopeRung: number, via: string) => {
+      const n = matchCount(path, rows);
+      if (!acceptableCount(n, cardinality, target)) return;
+      solutions.push({
+        ok: true,
+        path,
+        leafRung,
+        scopeRung,
+        via,
+        cardinality,
+        observed: n,
+      });
+    };
 
-  for (const leaf of leaves) {
-    consider([leaf.d], leaf.rung, 0, leaf.id);
-    for (const s1 of scopes) consider([s1.d, leaf.d], leaf.rung, s1.rung, leaf.id);
-    for (const s1 of scopes) {
-      for (const s2 of scopes) {
-        if (s2.depth <= s1.depth) continue;
-        consider([s1.d, s2.d, leaf.d], leaf.rung, s1.rung, leaf.id);
+    for (const leaf of leafSet) {
+      consider([leaf.d], leaf.rung, 0, leaf.id);
+      for (const s1 of scopeSet) consider([s1.d, leaf.d], leaf.rung, s1.rung, leaf.id);
+      for (const s1 of scopeSet) {
+        for (const s2 of scopeSet) {
+          if (s2.depth <= s1.depth) continue;
+          consider([s1.d, s2.d, leaf.d], leaf.rung, s1.rung, leaf.id);
+        }
       }
     }
-  }
 
-  // Fewest parts, then highest leaf rung, then highest scope rung.
-  solutions.sort(
-    (a, b) =>
-      a.path.length - b.path.length || a.leafRung - b.leafRung || a.scopeRung - b.scopeRung
-  );
-  const best = solutions[0];
-  if (best) return best;
+    // Fewest parts, then highest leaf rung, then highest scope rung.
+    solutions.sort(
+      (a, b) =>
+        a.path.length - b.path.length || a.leafRung - b.leafRung || a.scopeRung - b.scopeRung
+    );
+    return solutions[0];
+  };
+
+  const plain = search(leaves, scopes);
+  if (plain) return plain;
+
+  // Ticket 18 Q2, and it is a second pass rather than a sixth rung on purpose. Every plain path
+  // has to fail first, however long: 11 of the corpus's 1611 contains() calls carry a regex, so
+  // a ladder that reached for one in preference to a longer plain path would write a dialect.
+  //
+  // The pass offers an anchored variant of every anchorable leaf and lets the count decide,
+  // rather than testing first whether some other text contains this one. Those are the same
+  // test: an anchored matcher is strictly narrower than its plain form, so it can only change
+  // the count where another observed text carries this one inside it - which is exactly the
+  // ambiguity the rung exists for. Two elements reading the same stay ambiguous under both, and
+  // the refusal below still stands.
+  //
+  // **Leaves only, and a scope never.** Cypress tests a regex against the element's whole
+  // subtree text; a candidate row records the element's own text. The two are the same string on
+  // a leaf and nothing like it on a wrapper, so an anchored scope on the list item ticket 18
+  // names would match zero elements and fail on a timeout rather than on a count this function
+  // could refuse. That target needs ticket 17's anchored-scope rung - reach the element carrying
+  // the text, then walk out to the component holding it - composed with this one at the leaf.
+  const anchoredLeaves = leaves
+    .filter((x) => anchorable(x.d))
+    .map((x) => ({ ...x, d: anchor(x.d as TextDescriptor) }));
+
+  if (anchoredLeaves.length > 0) {
+    const anchored = search([...leaves, ...anchoredLeaves], scopes);
+    if (anchored) return anchored;
+  }
 
   // A position is legal only inside a repeating list - many neighbours sharing the element's
   // own leaf descriptor, measured by the probe. Humans use a position to pick one row out of
@@ -343,19 +414,32 @@ export function resolveSelector(
 
 const quote = (s: string): string => `'${s.replace(/'/g, "\\'")}'`;
 
+/**
+ * A regex literal, with the delimiter escaped too - a text holding a slash would not parse.
+ *
+ * `\s*` at both ends because Cypress collapses runs of whitespace in the text it tests but does
+ * not trim it, while a candidate row's text is trimmed. Without the slack, a span written over
+ * three lines matches nothing.
+ */
+const regexLiteral = (s: string): string =>
+  `/^\\s*${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "\\/")}\\s*$/`;
+
+/** The second argument to `contains`, which is the one thing anchoring changes. */
+const textMatcher = (d: TextDescriptor): string =>
+  d.anchored ? regexLiteral(d.text) : quote(d.text);
+
+const containsArgs = (d: TextDescriptor): string => `${quote(d.tag)}, ${textMatcher(d)}`;
+
 /** The emitted call. Formatting is the repo's formatter's job, never this function's. */
 export function emitPath(hit: LadderHit): string {
   const [first, ...rest] = hit.path;
   if (!first) return "";
   let out =
     typeof first === "object"
-      ? `cy.contains(${quote(first.tag)}, ${quote(first.text)})`
+      ? `cy.contains(${containsArgs(first)})`
       : `cy.get(${quote(first)})`;
   for (const p of rest) {
-    out +=
-      typeof p === "object"
-        ? `.contains(${quote(p.tag)}, ${quote(p.text)})`
-        : `.find(${quote(p)})`;
+    out += typeof p === "object" ? `.contains(${containsArgs(p)})` : `.find(${quote(p)})`;
   }
   if (hit.position !== undefined) {
     out += hit.position === 0 ? ".first()" : `.eq(${hit.position})`;
@@ -365,7 +449,7 @@ export function emitPath(hit: LadderHit): string {
 
 /** The path as it appears in the IR and in a diagnostic: readable, and stable across sessions. */
 export function pathToSelectorText(path: Descriptor[], position?: number): string {
-  const parts = path.map((d) => (typeof d === "string" ? d : `${d.tag}:contains(${d.text})`));
+  const parts = path.map((d) => (typeof d === "string" ? d : `${d.tag}:contains(${textMatcher(d)})`));
   return position === undefined ? parts.join(" ") : `${parts.join(" ")} @${position}`;
 }
 

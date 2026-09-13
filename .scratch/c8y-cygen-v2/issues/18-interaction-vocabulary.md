@@ -1,8 +1,10 @@
 # The interaction vocabulary: c8y-cygen cannot fill in a form
 
 Type: grilling
-Status: **decided; `fill` built.** Q1 is option 3 and needs no code. Q2 is the anchored matcher,
-decided but unbuilt on purpose — its ladder rung lands while implementing B2. B2 has not been run.
+Status: **decided; `fill` and Q2's rung built.** Q1 is option 3 and needs no code. Q2's anchored
+matcher is built — **as a leaf move only**, because reading Cypress's own matcher showed the
+decided form cannot reach the target the decision named. B2 has not been run: it is blocked on
+[ticket 17](17-anchored-scope-and-observed-values.md) finding 2, the anchored scope.
 Blocked by: — (raised by B2, which cannot be attempted without it)
 Assignee: jdre
 
@@ -208,20 +210,72 @@ Two conditions on the decision, so it does not become a licence:
   unexplained deviation and a justified one score the same only if the grader is told which is
   which.
 
-This is not yet built, and it is **not built ahead of B2 either**. The ladder currently measures
-two matches and routes to assist, which is correct behaviour for an ambiguity it cannot resolve.
-Teaching it to emit an anchored matcher when the ambiguity is *exactly* prefix-containment is a
-change to `resolveSelector`, and it lands as part of implementing B2 rather than before it — the
-oracle is the only thing that can say whether the rung fires where it should and stays quiet
-everywhere else, and building it blind would be guessing at a shape one measurement can settle.
+#### As built — and the decision was wrong in one respect
+
+The rung is in `resolveSelector` as a **second pass**: every plain path has to fail first,
+however long, so a two-part plain scope beats a one-part regex. That is what keeps 11-in-1611 the
+house style rather than a dialect. Where it fires, it beats the `position` rung, which is the
+whole point — `.first()` resolves an ambiguity by DOM order, and DOM order is a property of the
+render rather than of the test.
+
+Three corrections, all from reading Cypress's own matcher
+(`cypress_runner.js`, `cy-contains-regex`) rather than from a run:
+
+```js
+const normalizeWhitespaces = elem => {
+  let testText = elem.textContent || elem.innerText || $(elem).text();
+  if (elem.tagName === 'PRE') return testText;
+  return testText.replace(whitespaces, ' ');          // collapsed, NOT trimmed
+};
+return function (elem) { return regex.test(normalizeWhitespaces(elem)); };
+```
+
+1. **Cypress tests the regex against the element's whole subtree text; a candidate row records
+   the element's *own* text.** On a leaf those are the same string. On a wrapper they are
+   nothing like each other — so `cy.contains('c8y-datapoint-selector-list-item', /^e2eSeries$/)`
+   matches **zero** elements, because a list item holding a label, a select and its option text
+   never reads exactly `e2eSeries`. The decision named that line as the target, and the decided
+   form cannot reach it. The plain string works for a human precisely because a substring test
+   tolerates the gap; anchoring removes the tolerance that was carrying it.
+
+   So the rung anchors a **leaf and never a scope**, and the refusal on that scope stands exactly
+   where ticket 07 left it.
+
+2. **Whitespace.** Cypress collapses runs of whitespace but does not trim; `ownTextOf` trims. So
+   the emitted matcher is `/^\s*text\s*$/`, not `/^text$/`. Without the slack a span written
+   over three lines matches nothing — and it fails as a timeout, not as a count the ladder could
+   have refused.
+
+3. **Truncation.** A row's text is cut at 80 characters, and a cut text is a prefix of the real
+   one — the one thing an anchored matcher cannot survive. A text at the cap is never anchored.
+
+Two of these are the same mistake in different clothes: an anchored matcher asserts that the
+recorded text is *the whole of* what the element holds, and the facts only ever promised that it
+was *part of* it. The plain form never made that assertion, which is why it never noticed.
+
+#### What this costs B2
+
+B2's central line — `cy.contains(item, seriesName).find('select[formcontrolname="renderType"]')`
+— is a **scope**, so Q2 does not unblock it. It needs
+[ticket 17](17-anchored-scope-and-observed-values.md) finding 2, the anchored scope: reach the
+element that carries the text, then walk out to the component that holds it
+(`.closest(SEL).find(…)`), with Q2 doing the leaf half of the work. That finding was already
+open, already argued and already sized; it is now B2's blocker rather than B4's dependency.
+
+Q2 still earns its place in B2 at the leaf: outcome 5 asserts the one remaining series column
+label, `c8y_TemperatureMeasurement → e2eSeries °C` against
+`c8y_TemperatureMeasurement → e2eSeries2 °C` on the same surface — a prefix pair on two leaf
+spans, which is exactly the shape the rung resolves.
 
 ## Order
 
 1. ~~`fill`, with the compiler picking the call from the observed row.~~ Built.
 2. ~~Q1 and Q2 decided.~~ Option 3, and the anchored matcher.
-3. B2 — which carries Q2's ladder rung with it. The anchored matcher is decided but unbuilt,
-   and B2 is the oracle that forces it, so it is built against the one target that needs it
-   rather than in the abstract.
+3. ~~B2 — which carries Q2's ladder rung with it.~~ The rung is built, and building it against
+   the one target that needs it is what showed the target was out of its reach. See *As built*.
+4. [Ticket 17](17-anchored-scope-and-observed-values.md) finding 2, the anchored scope — now
+   B2's blocker rather than B4's dependency.
+5. B2.
 
 ## What would falsify this
 
@@ -238,6 +292,9 @@ everywhere else, and building it blind would be guessing at a shape one measurem
   call in the browser — and the refusal narrows to spec mode.
 - **Q1's option 3 makes B2 unwritable.** If the panel's state genuinely is not determined by the
   flow, "assert rather than repair" produces a flaky spec and option 2 wins.
+- **The anchored matcher never fires.** It is a leaf move over a measured prefix pair. B2's
+  outcome 5 is one, and if no oracle produces another, the rung is dead weight bought for one
+  assertion — and `.first()`, for all that it is a latent flake, would have cost nothing.
 - **B3 or B4 needs `.selectFile`, `.invoke` or `within`.** Each was left out on the grounds that
   no oracle needs it. That is a claim about five scenarios, not about the corpus, and the corpus
   says 9%, 24% and 19%.

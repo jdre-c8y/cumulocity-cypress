@@ -319,6 +319,14 @@ the short version, and what it changes here:
   238 chains across **71 of 214 specs (33%)**, and it is how B1's hand-written oracle reaches
   the asset-selector chip. Ticket 17 proposes an **anchored scope** rung costing no probe run.
 
+  **Confirmed a second time by B2, and promoted to a blocker (2026-09-13).** This ticket's own
+  unresolved oracle target — finding 2 below, `cy.contains('c8y-datapoint-selector-list-item',
+  'e2eSeries')` — turns out to need the anchored scope rather than the anchored *matcher*
+  [ticket 18](18-interaction-vocabulary.md) built for it. Cypress tests a `contains` regex
+  against the element's whole subtree text while a candidate row records its own text, so an
+  anchored matcher on a wrapper matches nothing. The anchored matcher answers the leaf half; the
+  scope half is this rung, and B2 cannot be generated without it.
+
 - **The `[value]` ban reached past selection into observation.** Banning `[value]` as a
   selector part is right and stays. Enforcing it by giving the value no field to arrive in is
   what broke: `extract: "value"` exists in the IR and compiles, but no fact can ever justify

@@ -39,7 +39,11 @@ const ATTRS: [keyof RowAttrs, string][] = [
   ["type", "type"],
 ];
 
-const MAX_TEXT = 80;
+/**
+ * Exported because the ladder has to know where a text was cut: a cut text is a prefix of the
+ * real one, which the plain `contains` idiom tolerates and an anchored one cannot.
+ */
+export const MAX_TEXT = 80;
 const MAX_ANCESTORS = 8;
 
 /**
@@ -131,8 +135,14 @@ export function ancestorsOf(el: ElementLike): AncestorDescriptor[] {
     if (classes.length > 0) descriptor.classes = classes;
     // A custom tag's OWN text only. Widening this to its whole subtree would offer scopes no
     // probe verified - an outer tag's textContent is most of the page. The narrow reading costs
-    // a longer path or a refusal, never a wrong selector; B2's cy.contains(tag, title) idiom is
-    // what will force the question, and B2 is not in this slice.
+    // a longer path or a refusal, never a wrong selector.
+    //
+    // B2 was named as the thing that would force this question, and it has: Cypress matches
+    // `contains` against the element's whole subtree text, so a scope built from own text is an
+    // under-count, and an *anchored* scope built from it would match nothing at all. The answer
+    // is still the narrow reading here - the ladder anchors a leaf and never a scope (ticket 18
+    // Q2), and the scope B2 needs is ticket 17's anchored-scope rung, which reaches the element
+    // carrying the text and walks out to the component holding it.
     if (text && isCustomTag(tag)) descriptor.text = text;
     chain.push(descriptor);
     current = current.parentElement;

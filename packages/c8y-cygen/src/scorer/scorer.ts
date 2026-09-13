@@ -149,6 +149,7 @@ export function score(input: ScoreInput): Score {
         "reuse of existing repo helpers and fixtures rather than reinventing them",
         "mocked versus integration style consistent with the contract's Style",
         "outcomes asserting a value a stub in the same test wrote - legal, counted below, and the thing to read the flow for",
+        "an anchored `cy.contains(sel, /^\\s*text\\s*$/)` is a DELIBERATE deviation, not a lapse: 11 of the corpus's 1611 contains() calls carry a regex, and the ladder emits one only where a text is a prefix of another on the same surface. The alternative is `.first()`, which resolves the ambiguity by DOM order. Ticket 18 Q2 carries the argument",
       ],
     },
     interventions: input.interventions,
