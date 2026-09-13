@@ -17,7 +17,7 @@ map is now history and stays unedited, with one exception below.**
 The exception is what the map was built to allow. Building the design produced the first live
 oracle run, and B1 found three things the deciding had not — one of them a decision ticket 07
 took and got wrong. [Anchored scope, and the value no row carries](issues/17-anchored-scope-and-observed-values.md)
-argues and sizes all three, and amends [Selector ladder](issues/07-selector-strategy.md).
+argues and sizes all three, and amends [Selector ladder](issues/07-selector-strategy.md). B1 then passed, and attempting B2 raised a second: [The interaction vocabulary](issues/18-interaction-vocabulary.md) — c8y-cygen cannot put a value into a form control, which is 54% of the corpus, and two read-only oracles hid it.
 Measurement overturning a resolved ticket is the map working, not the map reopening. Two of the
 three were latent in the corpus all along and nobody thought to measure them; the third was
 invisible until a model chose against a summary and lost.
