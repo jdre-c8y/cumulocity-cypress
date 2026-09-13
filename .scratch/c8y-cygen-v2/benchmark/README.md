@@ -235,9 +235,14 @@ is precisely why the design was never falsifiable.
 **Cost gates**, both derived from v1's measured figures and both revisable once real v2
 numbers exist:
 
-- **no single oracle exceeds $10** — v1's interactive scenario ran $4–8+, so $10 is a
-  loose ceiling on "no worse than v1";
-- **median oracle ≤ $3**.
+- **no single oracle exceeds $15** — v1's interactive scenario ran $4–8+, and $10 was the
+  original loose ceiling on "no worse than v1". Raised on 2026-09-13, on the first real v2
+  data the gates said they were revisable on: B1's first complete run cost $4.90 and its
+  whole history $7.81, so $10 left no room for the one re-run a fixed defect earns. The
+  gate is a ceiling on a *passing* oracle, and a FAIL that stops at the ceiling measures the
+  ceiling rather than the tool;
+- **median oracle ≤ $3**, unchanged — the median is what the ceiling exists to protect, and
+  nothing measured so far argues with it.
 
 A run that reaches green for $50 has not passed in any useful sense.
 
