@@ -1,7 +1,7 @@
 # Anchored scope, and the value no row carries
 
 Type: prototype
-Status: open
+Status: partly built — findings 1 and 3 landed in `2431213`; finding 2 open
 Blocked by: — (07 resolved; reopened by the B1 oracle run)
 Assignee: jdre
 
@@ -268,19 +268,35 @@ what makes the correct assertion expressible at all, and finding 2 — the one w
 weight behind it — cost B1 nothing, because outcome 2 passed on a `[title="e2eDevice"]` that
 happened to work.
 
-1. **Finding 1**, the summary label. One expression. It is what failed the run.
-2. **Finding 3**, the observed value. Unlocks outcomes 3 and 4, and 16.8% of the corpus.
-3. The **settle** note in the domain notes (ticket 08's, listed here so it is not lost).
-4. **Finding 2**, the anchored-scope rung. The largest piece, the least B1 urgency, and the
-   one a third of the corpus is waiting on.
+1. ~~**Finding 1**, the summary label.~~ **Done** (`2431213`). Replayed through the run's own
+   facts, the row that lured B1 now reads
+   `span  data-cy=c8y-dashboard-list--device-widget  "Asset Properties"`.
+2. ~~**Finding 3**, the observed value.~~ **Done** (`2431213`). The probe reads the `.value`
+   property; the row carries it outside `RowAttrs`; the linter refuses an assertion on a value
+   no probe observed, the way it already refuses an invented selector.
+3. ~~The **settle** note in the domain notes.~~ **Done** (`2431213`) — and it is also the hint
+   the new linter rule gives, so the model is told at the moment it needs it rather than only
+   in the standing notes.
+4. **Finding 2**, the anchored-scope rung. Open. The largest piece, the least B1 urgency, and
+   the one a third of the corpus is waiting on.
+
+### Two things the review of 1 and 3 found, which no test would have
+
+- **A password would have reached the prompt.** Facts are written to disk and then sent to a
+  model. A probe that walks a login form would have carried the tenant's credentials into both
+  the facts file and the API payload. Refused in the browser half and again in node — the
+  browser half is the layer a hand-written or replayed payload can bypass.
+- **Clipping a value is a lie with a green tick on it.** The first cut clipped at the boundary
+  and dropped at the final cap, so a clipped string could exist. Both stages now drop. An
+  equality asserted against a prefix fails for a reason nothing in the facts explains.
 
 Re-run B1 once after 1–3. Not before: a re-run without them fails identically, and B1 has
 already spent $7.81 against the benchmark's $10-per-oracle gate.
 
 ## What would falsify this
 
-- **B1 still fails after 1–3.** Then the diagnosis is wrong, and a second re-run is not worth
-  buying. Stop and re-read the facts rather than iterate.
+- **B1 still fails after 1–3.** Now testable: 1–3 are built. Then the diagnosis is wrong, and a
+  second re-run is not worth buying. Stop and re-read the facts rather than iterate.
 - **Finding 2's rung changes any of ticket 07's six exact oracle matches** when replayed
   through that ticket's prototype (branch `prototype/07-selector-ladder`, `732afd0`; the
   working tree no longer carries it). The rung is additive by
