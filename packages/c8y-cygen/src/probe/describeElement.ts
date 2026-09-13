@@ -19,6 +19,8 @@ export interface ElementLike {
   textContent: string | null;
   /** Present on the elements that hold one - input, textarea, select - and on nothing else. */
   value?: string;
+  /** Position in the probe's payload, for the elements that came from one. See `AncestorDescriptor.node`. */
+  readonly index?: number;
 }
 
 /** Everything the reduction needs to know about how the element is painted. */
@@ -130,6 +132,7 @@ export function ancestorsOf(el: ElementLike): AncestorDescriptor[] {
     const classes = classesOf(current);
     const text = ownTextOf(current);
     const descriptor: AncestorDescriptor = { tag };
+    if (current.index !== undefined) descriptor.node = current.index;
     if (dataCy) descriptor.dataCy = dataCy;
     if (id) descriptor.id = id;
     if (classes.length > 0) descriptor.classes = classes;

@@ -95,7 +95,9 @@ describe("rowsFromRawNodes", () => {
 
     expect(rows.map((r) => r.id)).toEqual(["event-detail#1", "event-detail#2"]);
     expect(rows[0]?.attrs.dataCy).toBe("c8y-event-details--type-wrapper");
-    expect(rows[0]?.ancestors).toEqual([{ tag: "c8y-event-details" }]);
+    // The node index rides along: two rows' spines are lists of descriptors, and ticket 17's
+    // anchored scope has to be able to ask whether two of them are the same element.
+    expect(rows[0]?.ancestors).toEqual([{ tag: "c8y-event-details", node: 0 }]);
   });
 
   it("does not offer the collect root as a target", () => {

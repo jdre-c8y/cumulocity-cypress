@@ -20,6 +20,15 @@ export type Visibility = "visible" | "hidden" | "clipped";
  */
 export interface AncestorDescriptor {
   tag: string;
+  /**
+   * The element's index in the probe's payload. Two rows' ancestor spines are lists of
+   * descriptors, and descriptors cannot be compared for sameness - so without this there is no
+   * way to ask whether two rows share an ancestor, which is the whole of ticket 17's anchored
+   * scope rung. Written node-side from the raw `i`/`parent` pairs; nothing new crosses the
+   * browser boundary. Absent on a hand-built descriptor, and a spine with no identity simply
+   * offers no hop.
+   */
+  node?: number;
   dataCy?: string;
   id?: string;
   classes?: string[];

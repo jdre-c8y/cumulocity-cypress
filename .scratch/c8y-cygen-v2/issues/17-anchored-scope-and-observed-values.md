@@ -1,7 +1,7 @@
 # Anchored scope, and the value no row carries
 
 Type: prototype
-Status: partly built — findings 1, 3, 4, 5, 6 and 7 built and measured; **finding 2 (the anchored scope rung) is the only one open**, and as of 2026-09-13 it is **B2's blocker**, not merely B4's dependency — see the note under finding 2. **B1 PASSES** as of run six. B1's spec now passes; axis A fails only on the first-attempt rule.
+Status: **all seven findings built.** Finding 2 (the anchored scope rung) was built on 2026-09-13, when B2 turned it from B4's dependency into B2's blocker; it has not been exercised by a measured run. **B1 PASSES** as of run six. B1's spec now passes; axis A fails only on the first-attempt rule.
 Blocked by: — (07 resolved; reopened by the B1 oracle run)
 Assignee: jdre
 
@@ -194,6 +194,34 @@ anchored matcher, and the scope half is this rung — reach the element that car
 then walk out to the component that holds it. Nothing here changes; it is the same
 `.closest(SEL).find(…)` hop, on an anchor that happens to be identified by text rather than by
 `[data-cy]`.
+
+### Built
+
+`ladder.ts`, `resolveByHop`. Ancestor identity arrived as `AncestorDescriptor.node`, written
+node-side in `describeElement` from the payload index the reconstructed tree already carried —
+no browser change, no second observation, exactly as costed.
+
+The rung sits **after** the anchored matcher and **before** the position rung. Before position
+because a hop is an identity the probe measured and a position is the order the page happened to
+render in; after the matcher because an anchored leaf is one part and a hop is two, and fewest
+parts has been the ladder's primary tie-break since ticket 07.
+
+Two things the proposal did not say, and both were forced by trying it:
+
+- **The anchor's own rung has a ceiling, and it is 4, not 3.** Rung 4 is the widening B2 forced:
+  its two datapoint list items differ in nothing but their label text, so the anchor can only be
+  a text — and `cy.contains(item, seriesName)` is what the human wrote there. Rung 5 stays out
+  for the same reason `.closest()` refuses a class. Without the ceiling the ladder happily
+  anchored on `cy.get('div.inner')`, which is the layout-utility flake this finding refuses one
+  hop further along. An anchor resolved by **position** is refused too: DOM order cannot come
+  back in through the other half of the selector.
+- **Candidates are filtered structurally before any anchor is resolved.** Shared ancestor, legal
+  hop, acceptable count — all cheap — and only then the expensive uniqueness search, memoised
+  per row. Deepest shared ancestor first, which is both the tightest scope and the likeliest to
+  satisfy the count.
+
+Every rule is load-bearing, checked by mutation: dropping the class refusal, the `.closest()`
+shadowing check, the anchor-rung ceiling or the count test each breaks exactly one test.
 
 ### It solves B1's chip exactly, and costs no probe run
 

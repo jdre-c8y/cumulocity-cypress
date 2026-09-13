@@ -32,10 +32,24 @@ export type Descriptor = string | TextDescriptor;
 /** How many elements a step declares it expects. Refusal fires on a mismatch against this. */
 export type Cardinality = { exactly: number } | { atLeast: number };
 
+/**
+ * A scope reached by walking up out of a neighbour, rather than down from an ancestor the target
+ * describes by itself. Ticket 17 finding 2: a third of the corpus reaches an element this way -
+ * 238 chains in 71 of 214 specs - and the ladder had no shape for it.
+ */
+export interface AnchoredScope {
+  /** The emitted expression for the anchor row, which resolves to exactly one element. */
+  anchor: string;
+  /** The `.closest()` argument. Absent when the shared ancestor is the anchor's own parent. */
+  closest?: string;
+}
+
 export interface LadderHit {
   ok: true;
-  /** Outermost first. */
+  /** Outermost first. Just the leaf when `scope` carries the rest. */
   path: Descriptor[];
+  /** Set only under the anchored-scope rung. */
+  scope?: AnchoredScope;
   /** Set only under the repeating-list rule. */
   position?: number;
   leafRung: number;
@@ -278,10 +292,157 @@ interface LeafCandidate {
   d: Descriptor;
 }
 
+/** The ancestor node indices a row carries, outermost first. Empty for a hand-built row. */
+const spineOf = (r: CandidateRow): number[] =>
+  r.ancestors.map((a) => a.node).filter((n): n is number => n !== undefined);
+
+/**
+ * What `.closest()` may be given: rungs 1, 2 and 3 only.
+ *
+ * Never a class. Rung 5 would offer `div.d-flex.p-r-16.fit-w.m-t-4.m-b-4` for B1's chip, and
+ * pinning a spec to a layout utility class is a flake with a green tick on it. Measured over the
+ * corpus's 197 ancestor hops: 155 expressible under this rule, 42 refused, and the 42 are
+ * exactly the `.d-flex` / `.row` / `.card` / `.form-group` arguments.
+ */
+function closestDescriptor(a: AncestorDescriptor): string | null {
+  if (a.dataCy) return `[data-cy="${a.dataCy}"]`;
+  if (isCustomTag(a.tag)) return a.tag;
+  const id = stable(a.id);
+  return id ? `[id="${id}"]` : null;
+}
+
+/** The deepest ancestor the two rows share, by node identity. */
+function nearestShared(anchor: CandidateRow, target: CandidateRow): number | null {
+  const targetNodes = new Set(spineOf(target));
+  const anchorSpine = spineOf(anchor);
+  for (let i = anchorSpine.length - 1; i >= 0; i--) {
+    const n = anchorSpine[i] as number;
+    if (targetNodes.has(n)) return n;
+  }
+  return null;
+}
+
+type Hop = { parent: true } | { closest: string };
+
+/**
+ * How far down the ladder an anchor may sit.
+ *
+ * Ticket 17 wrote rungs 1-3. Rung 4 was added when B2 showed its anchor can only be a text - two
+ * series list items that differ in nothing else - and `cy.contains(item, seriesName)` is what the
+ * human wrote there by hand. Rung 5 stays out for the same reason `.closest()` refuses a class:
+ * an anchor pinned to a layout utility is a flake with a green tick on it.
+ */
+const ANCHOR_MAX_RUNG = 4;
+
+/**
+ * How the anchor reaches the shared ancestor, or `null` when it cannot be reached safely.
+ *
+ * `.closest()` rather than the corpus's more common `.parents()`: `.parents()` can return
+ * several elements and humans then patch it with `.first()`, while `.closest()` returns at most
+ * one. It stops at the *first* matching ancestor, so a nearer ancestor wearing the same
+ * descriptor would silently land the selector somewhere the ladder never measured - and that is
+ * a refusal, not a longer path.
+ */
+function hopTo(anchor: CandidateRow, sharedNode: number): Hop | null {
+  const chain = anchor.ancestors;
+  const at = chain.findIndex((a) => a.node === sharedNode);
+  if (at < 0) return null;
+  if (at === chain.length - 1) return { parent: true };
+
+  const shared = chain[at] as AncestorDescriptor;
+  const descriptor = closestDescriptor(shared);
+  if (!descriptor) return null;
+  for (let i = at + 1; i < chain.length; i++) {
+    if (ancestorDescriptors(chain[i] as AncestorDescriptor).includes(descriptor)) return null;
+  }
+  return { closest: descriptor };
+}
+
+/**
+ * Ticket 17 finding 2, and the last rung before a position.
+ *
+ * The anchor is any OTHER row that resolves to exactly one element on its own - which, since
+ * ticket 18 Q2, includes a row that only an anchored matcher can pick out of a prefix pair. That
+ * composition is B2's line: the matcher names the series label, and this walks out of the label
+ * to the list item that holds it, exactly as the human wrote it by hand.
+ *
+ * Anchors are filtered structurally before any of them is resolved - shared ancestor, legal hop,
+ * acceptable count - because resolving one is the expensive half and the structural test throws
+ * away nearly all of them. Deepest shared ancestor first: the tightest scope is both the best
+ * selector and the likeliest to satisfy the count.
+ */
+function resolveByHop(
+  target: CandidateRow,
+  rows: CandidateRow[],
+  cardinality: Cardinality,
+  leaves: LeafCandidate[]
+): LadderHit | undefined {
+  if (spineOf(target).length === 0) return undefined;
+
+  const candidates = rows
+    .filter((r) => r.id !== target.id && spineOf(r).length > 0)
+    .flatMap((r) => {
+      const sharedNode = nearestShared(r, target);
+      if (sharedNode === null) return [];
+      const hop = hopTo(r, sharedNode);
+      if (!hop) return [];
+      const depth = spineOf(r).indexOf(sharedNode);
+      return [{ row: r, sharedNode, hop, depth }];
+    })
+    .sort((a, b) => b.depth - a.depth);
+  if (candidates.length === 0) return undefined;
+
+  const resolved = new Map<string, string | null>();
+  const anchorExpression = (r: CandidateRow): string | null => {
+    const cached = resolved.get(r.id);
+    if (cached !== undefined) return cached;
+    const hit = resolve(r, rows, { exactly: 1 }, false);
+    // A position would make the anchor depend on DOM order, which is what the hop exists to
+    // stop the *target* depending on. It cannot come back in through the other half.
+    const usable = hit.ok && hit.leafRung <= ANCHOR_MAX_RUNG && hit.position === undefined;
+    const expression = usable && hit.ok ? emitPath(hit) : null;
+    resolved.set(r.id, expression);
+    return expression;
+  };
+
+  for (const leaf of leaves) {
+    for (const c of candidates) {
+      const under = rows.filter(
+        (r) => spineOf(r).includes(c.sharedNode) && matchesRow(leaf.d, r)
+      );
+      if (!acceptableCount(under.length, cardinality, target)) continue;
+      if (!under.some((r) => r.id === target.id)) continue;
+
+      const anchor = anchorExpression(c.row);
+      if (!anchor) continue;
+      return {
+        ok: true,
+        path: [leaf.d],
+        scope: { anchor, ...("closest" in c.hop ? { closest: c.hop.closest } : {}) },
+        leafRung: leaf.rung,
+        scopeRung: 0,
+        via: `${leaf.id}+hop`,
+        cardinality,
+        observed: under.length,
+      };
+    }
+  }
+  return undefined;
+}
+
 export function resolveSelector(
   target: CandidateRow,
   rows: CandidateRow[],
   cardinality: Cardinality
+): LadderResult {
+  return resolve(target, rows, cardinality, true);
+}
+
+function resolve(
+  target: CandidateRow,
+  rows: CandidateRow[],
+  cardinality: Cardinality,
+  allowHop: boolean
 ): LadderResult {
   const leaves = RUNGS.map((g) => ({ rung: g.n, id: g.id, d: rungOf(g, target) })).filter(
     (x): x is LeafCandidate => x.d !== null
@@ -364,6 +525,13 @@ export function resolveSelector(
     if (anchored) return anchored;
   }
 
+  // Before the position rung, and deliberately: a hop is an identity the probe measured, and a
+  // position is the order the page happened to render in.
+  if (allowHop) {
+    const hop = resolveByHop(target, rows, cardinality, [...leaves, ...anchoredLeaves]);
+    if (hop) return hop;
+  }
+
   // A position is legal only inside a repeating list - many neighbours sharing the element's
   // own leaf descriptor, measured by the probe. Humans use a position to pick one row out of
   // many rows, never to separate two different things that happen to look alike.
@@ -434,8 +602,10 @@ const containsArgs = (d: TextDescriptor): string => `${quote(d.tag)}, ${textMatc
 export function emitPath(hit: LadderHit): string {
   const [first, ...rest] = hit.path;
   if (!first) return "";
-  let out =
-    typeof first === "object"
+  let out = hit.scope
+    ? `${hit.scope.anchor}${hit.scope.closest ? `.closest(${quote(hit.scope.closest)})` : ".parent()"}` +
+      (typeof first === "object" ? `.contains(${containsArgs(first)})` : `.find(${quote(first)})`)
+    : typeof first === "object"
       ? `cy.contains(${containsArgs(first)})`
       : `cy.get(${quote(first)})`;
   for (const p of rest) {
