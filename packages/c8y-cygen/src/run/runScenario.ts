@@ -283,7 +283,7 @@ export async function runScenario(options: RunOptions): Promise<RunReport> {
 
       let parsed: unknown;
       try {
-        parsed = parseIrReply(reply.text);
+        parsed = parseIrReply(reply.text, reply.stopReason);
       } catch (e) {
         if (!(e instanceof ModelError)) throw e;
         attemptLog.append({

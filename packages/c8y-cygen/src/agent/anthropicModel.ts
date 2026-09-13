@@ -30,7 +30,13 @@ import type { PromptBlock } from "./promptAssembly.js";
  */
 export const MODEL = "claude-opus-5";
 export const EFFORT = "high" as const;
-export const MAX_TOKENS = 16_000;
+/**
+ * Raised from 16,000, which B1's first live run walked into three iterations running: a
+ * cost-10 scenario's IR is several times a cost-1 scenario's, and at the old cap the document
+ * was cut off mid-write every time. The failure was expensive precisely because it was not
+ * legible - see parseIrReply, which now names truncation when the stop reason says so.
+ */
+export const MAX_TOKENS = 32_000;
 
 /** A 1000x660 Cypress viewport is 864 visual tokens. A tall full-page capture is 3,888 and is
  *  not auto-downscaled, sitting just under the cap that would trigger it. So it is capped here. */
@@ -82,7 +88,12 @@ export class AnthropicModel implements CallsModel {
     }
     content.push(...request.prompt.tail.map(toBlock));
 
-    const response = await this.client.messages.create({
+    // Streamed, and not for progress reporting - nothing reads the chunks. The SDK refuses a
+    // non-streaming request whose estimated duration exceeds ten minutes, and that estimate
+    // scales with max_tokens, so raising the cap to 32,000 made every call throw before it was
+    // sent. `.finalMessage()` yields the same Message the non-streaming call did, so the stop
+    // reason, the usage record and the content blocks below are unchanged.
+    const response = await this.client.messages.stream({
       model: MODEL,
       max_tokens: MAX_TOKENS,
       // Never disabled. With thinking off the documented failure mode is a tool call written
@@ -92,7 +103,7 @@ export class AnthropicModel implements CallsModel {
       output_config: { effort: EFFORT },
       system,
       messages: [{ role: "user", content }],
-    });
+    }).finalMessage();
 
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")

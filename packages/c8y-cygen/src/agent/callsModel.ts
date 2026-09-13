@@ -32,11 +32,24 @@ export class ModelError extends Error {
   }
 }
 
-/** The IR arrives as one fenced JSON block. Anything else is a spent turn, reported as one. */
-export function parseIrReply(text: string): unknown {
+/**
+ * The IR arrives as one fenced JSON block. Anything else is a spent turn, reported as one.
+ *
+ * `stopReason` is passed so that a reply the model never finished writing says so. B1's first
+ * live run spent three iterations on "the reply carried no fenced code block" - which was true,
+ * and useless: the reply was cut off at the output cap mid-IR, so the closing fence was never
+ * written. Told its formatting was wrong, the model wrote the same over-long reply again. The
+ * real cause was in the stop reason the adapter had returned all along.
+ */
+export function parseIrReply(text: string, stopReason?: string): unknown {
   const fenced = /```(?:json|yaml|yml)?\s*\n([\s\S]*?)```/g;
     const blocks = [...text.matchAll(fenced)].map((m) => (m[1] ?? "").trim());
   if (blocks.length === 0) {
+    if (stopReason === "max_tokens") {
+      throw new ModelError(
+        "the reply ran out of output tokens before the IR was finished, so it has no closing fence. This is not a formatting mistake: the document was too long. Author a shorter IR - collect fewer surfaces in one pass, and let a later iteration gather the rest."
+      );
+    }
     throw new ModelError(
       "the reply carried no fenced code block, so it holds no IR document"
     );
