@@ -267,7 +267,16 @@ Setup — with no new sections and no special-casing. Salvaged on that evidence.
 
 - [`B0-events-details`](scenarios/B0-events-details.scenario.md) — salvaged verbatim from v1
 - [`B1-asset-selector-retains-device`](scenarios/B1-asset-selector-retains-device.scenario.md)
-- [`B2-datapoints-render-type`](scenarios/B2-datapoints-render-type.scenario.md)
+- [`B2-datapoints-render-type`](scenarios/B2-datapoints-render-type.scenario.md) — runnable
+  instance at `cumulocity-ui-e2e/cypress/e2e/appEnablementTeam/datapoints-render-type-generated.scenario.md`,
+  with **two deliberate differences recorded rather than swapped silently**: it uses a *group*
+  dashboard rather than the cockpit home dashboard, because the home dashboard is a real person's
+  and B1 had already established the group route; and the widget's own configuration is stubbed
+  from the response the probe observes rather than from `widgets/dpt/dashboard-objects.json`,
+  which is keyed to a home dashboard on another tenant. The series fixture is the repo's and is
+  unchanged — it is the one that makes the asserted value stable, which is the whole point of the
+  mocked style here. Its contract also states the expanded series panel as a **precondition**
+  rather than repairing it, which is ticket 18's Q1 decision applied
 - [`B3-quicklinks-preview`](scenarios/B3-quicklinks-preview.scenario.md) — salvaged from v1
 - [`B4-plugin-global-provider`](scenarios/B4-plugin-global-provider.scenario.md)
 

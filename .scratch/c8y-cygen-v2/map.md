@@ -714,3 +714,5 @@ Ruled beyond this destination. Does not graduate; returns only as a fresh effort
 - **Non-Cumulocity repos / arbitrary unknown conventions.** The target set is Cumulocity
   UI apps and plugins built on `ngx-components`. Generalising further before the tool
   works reliably on known conventions makes the design abstract and unfalsifiable.
+
+- [B2's first run: the probe never reached the widget configuration](issues/19-b2-first-run.md) — FAIL, $4.67, no spec; four findings, none built.
