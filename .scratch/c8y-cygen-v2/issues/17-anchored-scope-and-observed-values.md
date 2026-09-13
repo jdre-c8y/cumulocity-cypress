@@ -1,7 +1,7 @@
 # Anchored scope, and the value no row carries
 
 Type: prototype
-Status: partly built — findings 1, 3, 4, 5 built and measured; findings 2 and 6 open. B1's spec now passes; axis A fails only on the first-attempt rule.
+Status: partly built — findings 1, 3, 4, 5 built and measured; findings 2, 6 and 7 open. B1's spec now passes; axis A fails only on the first-attempt rule.
 Blocked by: — (07 resolved; reopened by the B1 oracle run)
 Assignee: jdre
 
@@ -484,6 +484,50 @@ catch by reading.
 $17.17 across five runs against the $20 gate. One run left, and it should not be spent until
 finding 6 is built and the flakiness that forced the heal is understood — a re-run that goes
 green on attempt 2 again buys the same FAIL.
+
+### Finding 7 — nothing refuses a click on a row the probe saw as hidden
+
+Run five's one failure, chased to the bottom. It is **not** a hole in ticket 02's invariant;
+the guarantee holds and the row was genuinely observed:
+
+```
+facts/b1-fifth/probe-01/005-provisional.json
+  kind=provisional  stepId=enter-edit-mode  matchCount=0  within=null  nodes=400
+  node 350: button[data-cy="dashboard-detail--save-dashboard"][title="Save"]   visibility: hidden
+```
+
+The chain is worth stating in full, because every link is working as designed and the result
+is still a failed run:
+
+1. A provisional guess at `enter-edit-mode` matched **0 elements**.
+2. A miss costs its own rows, so the probe dumped the page — `within: null`, 400 nodes, which
+   is the cap. That is the miss-recovery path doing its job.
+3. `readFacts` turns those nodes into a surface like any other, so every one of the 400 became
+   a citable candidate row.
+4. That page-wide dump was taken with the dashboard **not** in edit mode, and the button was
+   recorded `hidden` — correctly.
+5. The model later made that row the target of a `click`. Nothing refused it.
+6. Cypress waited ten seconds for a button inside a `display: none` drawer and failed.
+
+**The gap is one rule wide.** An action needs a target that can be acted on, and the row already
+carries the honest flag — ticket 07 supplies `visible | hidden | clipped` precisely so this can
+be judged. It is judged nowhere. The only place visibility appears in the linter is the
+*opposite* argument: that a `click` waits for actionability, used to justify deleting a
+redundant `settle` before it.
+
+**Decision to take:** a `click` whose target row was observed `hidden` is refused, naming the
+surface and the state it was observed in. `clipped` stays legal — a clipped element is on the
+page and scrollable, which is the preview-versus-saved hazard and not this one.
+
+Worth noting what this does *not* need: a second observation, a wider scope, or any change to
+the ladder. The fact was in hand from the first probe of the run.
+
+**A correction.** The first pass over these facts reported that no probe before the failing spec
+run had a row for either dashboard save button, and called the guarantee possibly breached. That
+was wrong: the scan printed only each provisional payload's *matched* node, and this payload's
+match count was zero — so the 400 nodes it carried, one of them the button, never appeared. The
+invariant was never in question. A grep for the literal string, which should have been the first
+move, found it immediately.
 
 ## What would falsify this
 
