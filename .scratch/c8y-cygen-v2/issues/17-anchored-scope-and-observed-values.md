@@ -479,6 +479,22 @@ Style line quoted back. It is the same rule as the integration one, written the 
 round, and it is also an axis-C and axis-D finding that a human grader would otherwise have to
 catch by reading.
 
+**Built** (`99364cb`, `lintIr.ts:812`). `style === "mocked"` with no `stub` anywhere in the IR
+is refused in spec mode and raised as a gap in probe mode. Two details are load-bearing and
+neither is obvious from the decision above:
+
+- **A gap while probing, not a refusal.** The stub turn legitimately comes *after* the network
+  has been watched: `fromRequest` must name an exchange a probe observed, and on the first
+  iteration there are none. Refusing there would make the first IR of every mocked scenario
+  unlintable, which is the wall finding 5 had just finished taking down.
+- **The trip condition is `response-absent`, not `zero-dom-steps`.** Reusing the nearest
+  existing condition was the convenient thing and it would have put this in the wrong column of
+  the assist accounting. What is missing here is a served response; the remedy is to watch the
+  network, not to collect more rows.
+
+Covered by `lintIntercept.spec.ts` in both modes — the spec-mode refusal, and the probe-mode
+gap with no error beside it.
+
 ### Where B1 stands
 
 $17.17 across five runs against the $20 gate. One run left, and it should not be spent until
@@ -522,6 +538,21 @@ page and scrollable, which is the preview-versus-saved hazard and not this one.
 Worth noting what this does *not* need: a second observation, a wider scope, or any change to
 the ladder. The fact was in hand from the first probe of the run.
 
+**Built** (`99364cb`, `lintIr.ts:656`; extended to `fill` in `becd4d4`). A `click` — and now a
+`fill` — whose target row was observed `hidden` is refused, naming the surface it was seen on
+and what to do instead: observe it in the state where it is visible and cite *that* row, or add
+the step that reveals it.
+
+- **`clipped` stays legal**, as decided. A clipped element is on the page and scrollable, which
+  is ticket 07's preview-versus-saved hazard and a different question entirely.
+- **Refused in both modes.** A probe-mode exemption was tempting on the grounds that a probe is
+  the mode allowed to fail — but a click that cannot happen ends the probe run part-way and
+  loses every surface after it, which is more expensive than the turn the refusal costs.
+- **`selector-absent`**, because the remedy is another observation.
+
+Covered by `lintIr.spec.ts` both ways round — hidden refused, clipped still clicked — and by
+`lintFill.spec.ts` for the fill case.
+
 **A correction.** The first pass over these facts reported that no probe before the failing spec
 run had a row for either dashboard save button, and called the guarantee possibly breached. That
 was wrong: the scan printed only each provisional payload's *matched* node, and this payload's
@@ -550,8 +581,11 @@ six would inherit — it was one IR's choice of one row. The right question was 
 why it failed?"* but *"is the failure a property of the build or of one authoring?"*, and that
 was answerable from the same facts, for free.
 
-Finding 7 stands regardless and should still be built: a `click` on a row observed `hidden` is
-a real defect, run five paid for it, and run six only avoided it by not making that choice.
+Finding 7 stands regardless: a `click` on a row observed `hidden` is a real defect, run five
+paid for it, and run six only avoided it by not making that choice. Both it and finding 6 were
+built after this run, so **no measured run has exercised either of them** — their evidence is
+run five's failure and run five's silence, not a green run of their own. Whichever oracle runs
+next is the first that could falsify them.
 
 ### What the PASS does not settle, and a human grading C and D should see
 
@@ -566,7 +600,10 @@ a real defect, run five paid for it, and run six only avoided it by not making t
   reason that has nothing to do with the contract. → [Replay and determinism](04-replay-and-determinism.md).
 - **Finding 6 is still real and now known to be intermittent.** Run five's spec carried no stub
   at all under the same `mocked` contract and nothing complained; run six carried four. A rule
-  that only sometimes matters is still a rule.
+  that only sometimes matters is still a rule — and an intermittent defect is the kind a passing
+  run is least able to argue against. Built after this run.
+
+Both of those became rules in `99364cb`, which is the record above.
 
 ### B1's measured figures
 

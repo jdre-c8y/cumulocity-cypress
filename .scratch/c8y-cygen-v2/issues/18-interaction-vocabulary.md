@@ -1,8 +1,8 @@
 # The interaction vocabulary: c8y-cygen cannot fill in a form
 
 Type: grilling
-Status: **decided and built.** `fill` is in, Q1 is option 3, Q2 is the anchored matcher. B2 is
-unblocked and has not been run.
+Status: **decided; `fill` built.** Q1 is option 3 and needs no code. Q2 is the anchored matcher,
+decided but unbuilt on purpose — its ladder rung lands while implementing B2. B2 has not been run.
 Blocked by: — (raised by B2, which cannot be attempted without it)
 Assignee: jdre
 
@@ -208,17 +208,20 @@ Two conditions on the decision, so it does not become a licence:
   unexplained deviation and a justified one score the same only if the grader is told which is
   which.
 
-This is not yet built. The ladder currently measures two matches and routes to assist, which is
-correct behaviour for an ambiguity it cannot resolve; teaching it to emit an anchored matcher
-when the ambiguity is *exactly* prefix-containment is a change to `resolveSelector`, and it is
-the next piece of work after this ticket.
+This is not yet built, and it is **not built ahead of B2 either**. The ladder currently measures
+two matches and routes to assist, which is correct behaviour for an ambiguity it cannot resolve.
+Teaching it to emit an anchored matcher when the ambiguity is *exactly* prefix-containment is a
+change to `resolveSelector`, and it lands as part of implementing B2 rather than before it — the
+oracle is the only thing that can say whether the rung fires where it should and stays quiet
+everywhere else, and building it blind would be guessing at a shape one measurement can settle.
 
 ## Order
 
 1. ~~`fill`, with the compiler picking the call from the observed row.~~ Built.
 2. ~~Q1 and Q2 decided.~~ Option 3, and the anchored matcher.
-3. The anchored matcher in the ladder — Q2's decision is argued, not implemented.
-4. Run B2.
+3. B2 — which carries Q2's ladder rung with it. The anchored matcher is decided but unbuilt,
+   and B2 is the oracle that forces it, so it is built against the one target that needs it
+   rather than in the abstract.
 
 ## What would falsify this
 
