@@ -1,7 +1,7 @@
 # Anchored scope, and the value no row carries
 
 Type: prototype
-Status: partly built — findings 1 and 3 landed in `2431213`; finding 2 open
+Status: partly built — findings 1 and 3 landed in `2431213` and measurably worked; findings 2, 4 and 5 open
 Blocked by: — (07 resolved; reopened by the B1 oracle run)
 Assignee: jdre
 
@@ -292,6 +292,106 @@ happened to work.
 
 Re-run B1 once after 1–3. Not before: a re-run without them fails identically, and B1 has
 already spent $7.81 against the benchmark's $10-per-oracle gate.
+
+## The re-run: what 1 and 3 bought, and the two walls behind them
+
+`b1-fourth`, 2026-09-13, against the same tenant and the same fixture.
+
+```
+VERDICT  FAIL
+  A green            FAIL  1 test failure
+  B outcome coverage PASS  4 of 4
+  interventions      1   app-contradicts-scenario, raised by the model itself
+  cost               $5.3687 over 9 iterations, 4 Cypress runs (3 probe), 9 model turns
+```
+
+**The falsification test passed on its own terms.** Findings 1 and 3 did what they claimed:
+
+- **Nobody was lured.** The `c8y-dashboard-list--device-widget` span appears once in the new
+  spec, asserted `to be visible` — which is all a widget-type label can honestly support. Its
+  text is now on its line, and the model used it for what it is.
+- **`extract: "value"` worked end to end, live.** The probe observed
+  `input title="Name" value="e2eDevice"`, the model asserted against it, and
+  **outcome 3 passed against the real application**: `expected <input#sf-name73…> to have
+  value e2eDevice`. That assertion could not have been written before this ticket.
+- **Probe runs fell from 5 of 5 to 3 of 5.** The tripwire did not fire. The prediction was
+  that a model which can see a value stops hunting for a substitute element, and it held.
+- The spec now walks the **whole** flow — both save cycles — and fails at `steps[21]` rather
+  than `steps[9]`.
+
+It still fails, and on two things neither this ticket nor ticket 07 had seen.
+
+### Finding 4 — rung 3 trusts a `[name]` that a form library generated
+
+The ladder derived `cy.get('input[name="sf-name73"]')`. It passed after the first save cycle
+and after the second the element did not exist: *"Expected to find element:
+`input[name="sf-name73"]`, but never found it"* — while the screenshot shows the widget
+rendered correctly with Name = e2eDevice. angular-schema-form regenerates the name on every
+render.
+
+The tell is in the facts already, inside **one** collect, with no second observation needed:
+
+```
+probe-04/010-collect.json   <input name="sf-id72"   title="ID"   value="19753902">
+                            <input name="sf-name73" title="Name" value="e2eDevice">
+                            <input name="sf-type74" title="Type" value="e2eDeviceType">
+```
+
+Three siblings sharing a stem, with a counter running through them. An author does not name
+three fields that way; a loop does.
+
+Checked against the corpus, because rung 3 exists on the strength of humans writing `[name]`
+398 times: of **427** human `[name]`/`[formcontrolname]` literals, **2 end in digits** —
+`field1` and `field2`, which are arguably the same smell. (A first count said 4; the other two
+were `sf-name73` read back out of this run's own emitted spec, which the intervention left on
+disk.)
+
+**Decision to take:** rung 3 refuses a `name`, `formcontrolname` or `id` whose stem is shared
+with a sibling row and whose remainder is a number, and falls through to the next rung. It
+costs 0.5% of human practice and it is the fifth entry on ticket 07 Part 2's hazard list:
+*an identifier the framework generates per render*.
+
+Note what this does **not** need: a second probe run. Ticket 07 closed second-state
+re-observation as too expensive, and this hazard is visible from siblings in a single collect.
+
+### Finding 5 — a mocked-style IR can never re-probe, and the run deadlocked on exactly that
+
+The model's own words, from the assist packet it raised:
+
+> The documented fallback — put the target back to `provisional` and spend a probe run to
+> re-observe the widget after the second cycle — is blocked: a provisional target compiles the
+> IR as a probe, and a probe IR may not contain `stub` steps, but all five stub steps (required
+> by the contract's mocked style) are frozen fields on a heal turn and my attempt to remove them
+> was rejected. Iterations 7 and 8 hit exactly these two walls in turn.
+
+That is correct, and it is our bug, not the model's. **The compiler and the linter disagree
+about the same IR.** The compiler already drops a stub in probe mode and says so in the emitted
+spec:
+
+```ts
+// probe: stub dropped (${step.id}) - a probe observes the real response
+```
+
+while the linter refuses the document outright — *"'stub' must not appear in a probe IR."* The
+linter's reason is sound: a probe that serves a fabricated body records its own fiction. But
+**dropping is not serving.** The compiler's behaviour already delivers the guarantee the
+refusal was written to protect, and the refusal, meeting the heal guard's freeze on deleting a
+non-scaffolding step, makes a mocked-style IR unable to ever re-probe. Every mocked oracle —
+B1, B2, B3 — is one heal away from this.
+
+**Decision to take:** in probe mode a `stub` is a note, not an error. It says which stubs the
+probe dropped and why, and the run continues.
+
+The assist itself is worth recording as a success: the model diagnosed a two-sided deadlock in
+our own rules, named the three ways out, and refused to take the one that was not its to take
+(*"a change to WHAT is asserted and therefore not mine to make on a heal turn"*). That is the
+assist path and the frozen-field guard both working as designed.
+
+### Where B1 stands
+
+$13.18 across four runs against the raised $15 gate. The next run is the last one B1 can buy,
+and it should not be bought until findings 4 and 5 are built — 5 especially, because without it
+a re-probe is impossible and the loop cannot recover from anything.
 
 ## What would falsify this
 
