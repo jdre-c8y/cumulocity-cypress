@@ -254,12 +254,13 @@ recorded text is *the whole of* what the element holds, and the facts only ever 
 was *part of* it. The plain form never made that assertion, which is why it never noticed.
 
 4. **Corrected 2026-09-15, after B2's first run: uniqueness is not the same claim as
-   trustworthiness.** The rung reaches for whatever text makes a row unique, and a probe walking
-   the live tenant can hand back a timestamp as readily as `e2eSeries`. Fixed in
+   trustworthiness.** This rung's own leaf pass reaches for whatever text makes a row unique, and
+   a probe walking the live tenant can hand back a timestamp as readily as `e2eSeries`. Gated in
    [ticket 19](19-b2-first-run.md) finding 2 with `isTraceable`, a predicate `resolveSelector`
-   threads through the anchored pass: `lintIr.ts` supplies `(text) => isAnchoredLiteral(text,
-   contract)`, the same rule a fabricated stub body is already held to. `e2eSeries` is in the
-   contract; a live timestamp is not.
+   threads through this pass: `lintIr.ts` supplies `(text) => isAnchoredLiteral(text, contract)`,
+   the same rule a fabricated stub body is already held to. `e2eSeries` is in the contract; a live
+   timestamp is not. (Getting the *scope* of that gate right — beyond this pass, into ticket 17's
+   hop — took a second attempt; see ticket 19 finding 2's full account.)
 
 #### What this costs B2
 

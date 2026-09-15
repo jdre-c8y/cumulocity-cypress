@@ -256,11 +256,14 @@ can hand back a timestamp as readily as a label a human wrote in the contract. B
 was `cy.contains('small', '13 Sept 2026 22:24:36')` — live data pinned into a selector that has to
 survive a stubbed spec run.
 
-The fix is [ticket 19](19-b2-first-run.md) finding 2: `resolveByHop`'s recursive resolution of a
-candidate anchor now carries the same traceability predicate the leaf rung (ticket 18 Q2) does, so
-an anchor that can only be told apart from its neighbours by an untraceable text fails to resolve
-at all, dropping it from the hop's candidate list. Nothing above this note changes — the hop
-itself, the ceiling, the `.closest()` shadowing check and the count test are exactly as built.
+The fix is [ticket 19](19-b2-first-run.md) finding 2, and it took two attempts: the first version
+gated only the anchored-*regex* pass (ticket 18 Q2's mechanism), on the reasoning that
+`resolveByHop`'s recursive resolution would inherit it for free. A second run caught what that
+missed — B2's timestamp was already unique on its own, so it resolved as a plain leaf and never
+touched the regex pass. `resolveByHop` now checks the resolved anchor's own text directly,
+whichever form found it unique, so an anchor identified by *any* untraceable text fails to
+resolve, dropping it from the hop's candidate list. Nothing else changes — the hop itself, the
+ceiling, the `.closest()` shadowing check and the count test are exactly as built.
 
 ## Finding 3 — no row carries a value, so `extract: "value"` can never be anchored
 

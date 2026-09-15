@@ -286,6 +286,12 @@ const anchorable = (d: Descriptor): d is TextDescriptor =>
 
 const anchor = (d: TextDescriptor): TextDescriptor => ({ tag: d.tag, text: d.text, anchored: true });
 
+/** The text a hit's leaf carries, whichever rung produced it - `undefined` off a CSS part. */
+const textOf = (hit: LadderHit): string | undefined => {
+  const leaf = hit.path[hit.path.length - 1];
+  return leaf !== undefined && isText(leaf) ? leaf.text : undefined;
+};
+
 /**
  * Whether a text is trustworthy enough to identify an element by, rather than merely well-formed
  * enough to anchor (that is `anchorable`, above - a different question).
@@ -382,10 +388,13 @@ function hopTo(anchor: CandidateRow, sharedNode: number): Hop | null {
  * composition is B2's line: the matcher names the series label, and this walks out of the label
  * to the list item that holds it, exactly as the human wrote it by hand.
  *
- * `isTraceable` travels into that resolution (below), not just into this function's own leaves -
- * an anchor row that can only be told apart from its neighbours by an untraceable text must fail
- * to resolve at all, which drops it from `candidates` and lets the search fall through to the
- * position rung. B2's first run reached for a timestamp here for exactly this reason.
+ * `isTraceable` gates the anchor's own text directly, below - not only the anchored-regex pass
+ * inside its `resolve` call. B2's timestamp needed no regex: nothing else on the surface shared
+ * enough of it to be ambiguous, so it resolved as an ordinary plain-text leaf, and a gate that
+ * only watched the anchored pass never saw it. The hazard this rung exists to stop is a text
+ * used as an *anchor*, whichever form of text match found it unique - the plain-leaf carve-out
+ * below, "the plain text rung has the same exposure and has had it since ticket 07", is about a
+ * text used as an ordinary leaf, never about one asked to carry a hop.
  *
  * Anchors are filtered structurally before any of them is resolved - shared ancestor, legal hop,
  * acceptable count - because resolving one is the expensive half and the structural test throws
@@ -419,9 +428,17 @@ function resolveByHop(
     const cached = resolved.get(r.id);
     if (cached !== undefined) return cached;
     const hit = resolve(r, rows, { exactly: 1 }, false, isTraceable);
+    // The text that would carry the hop, whether or not resolving it needed the anchored-regex
+    // pass - a text that is already unique on its own never reaches that pass, and B2's timestamp
+    // is exactly such a text.
+    const text = hit.ok ? textOf(hit) : undefined;
     // A position would make the anchor depend on DOM order, which is what the hop exists to
     // stop the *target* depending on. It cannot come back in through the other half.
-    const usable = hit.ok && hit.leafRung <= ANCHOR_MAX_RUNG && hit.position === undefined;
+    const usable =
+      hit.ok &&
+      hit.leafRung <= ANCHOR_MAX_RUNG &&
+      hit.position === undefined &&
+      (text === undefined || isTraceable(text));
     const expression = usable && hit.ok ? emitPath(hit) : null;
     resolved.set(r.id, expression);
     return expression;

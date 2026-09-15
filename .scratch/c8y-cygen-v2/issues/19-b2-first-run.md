@@ -1,17 +1,28 @@
 # B2's first run: the probe never reached the widget configuration
 
 Type: post-mortem
-Status: findings 1 and 2 built (2026-09-15); finding 3 is a caution rather than code and needs no
-change; finding 4 is a confirmation. B2 has not been re-run since.
+Status: findings 1 and 2 built (2026-09-15). `b2-second` re-ran against them and still FAILed on
+the probe-run cap; its own facts caught finding 2's first version scoped to the wrong mechanism
+(see finding 2's "Built" section) and it was corrected the same day. Finding 3 is a caution rather
+than code and needs no change; finding 4 is a confirmation. A new, un-speced gap surfaced by
+`b2-second` — the position rung has no ancestor-scoped form — is recorded, not built.
 Blocked by: — (17 and 18 built; this is what running them measured)
 Assignee: jdre
 
 ```
-run b2-first   FAIL — no spec produced, so nothing to score on axes A or B
+run b2-first    FAIL — no spec produced, so nothing to score on axes A or B
   cost               $4.6658 over 8 iterations, 5 Cypress runs (all probe), 8 model turns
   note               stopped on probe-runs
   note               TRIPWIRE: 5 probe runs against a cap of 5
   note               at least one start-to-start gap between Cypress runs exceeded five minutes
+  stray files        0
+
+run b2-second   FAIL — no spec produced, so nothing to score on axes A or B (findings 1+2 in place)
+  cost               $6.9611 over 9 iterations, 5 Cypress runs (all probe), 9 model turns
+  note               stopped on probe-runs
+  note               TRIPWIRE: 5 probe runs against a cap of 5
+  note               at least one start-to-start gap between Cypress runs exceeded five minutes
+  died on            the same `.modal-content` guess as b2-first, one iteration later
   stray files        0
 ```
 
@@ -124,28 +135,51 @@ Note what this does **not** say: the plain text rung has the same exposure and h
 ticket 07. B1 and B0 passed with it. Widening the rule to every text leaf is a separate argument
 and is not made here.
 
-### Built
+### Built, then found scoped wrong by the second run, then corrected (2026-09-15)
 
 `ladder.ts` gained `isTraceable`, a predicate threaded through `resolveSelector`, `resolve` and
-`resolveByHop`: a text may become an anchored matcher only where the predicate says so. It gates
-the anchored pass at the leaf (ticket 18 Q2) and, because `resolveByHop`'s own resolution of a
-candidate anchor calls back into `resolve` with the same predicate, the hop (ticket 17 finding 2)
-inherits the same gate for free — one check, not two.
+`resolveByHop`. The first version gated only ticket 18 Q2's anchored-regex pass, on the reasoning
+that `resolveByHop`'s recursive call into `resolve` would inherit the same gate for free — "one
+check, not two."
+
+That reasoning was wrong, and a second run (`b2-second`) caught it rather than a unit test: B2's
+timestamp needs no regex. `13 Sept 2026 22:24:36` was already unique among every row's own text
+on that surface, so it resolved as an ordinary **plain** rung-4 leaf and never reached the
+anchored-regex pass at all — the ladder still emitted
+`cy.contains('small', '13 Sept 2026 22:24:36').parent().find('[data-cy="c8y-datapoints-table--value-min"]')`
+with the first version of this rung in place. Confirmed by loading the run's own facts
+(`probe-03/004-collect.json`) into `resolveSelector` directly, with the real contract text, rather
+than trusting the model's report of what happened.
+
+**Corrected scope:** the hazard is a text used as an **anchor** (ticket 17's role — a row the hop
+reaches for), not a text that happened to need **anchoring** (ticket 18 Q2's regex mechanism).
+Those are different axes, and the first version gated the wrong one. `resolveByHop`'s
+`anchorExpression` now checks the resolved anchor's own leaf text directly — `textOf(hit)` — and
+requires `isTraceable` on it regardless of whether that leaf is the plain or the anchored form.
+The plain-leaf carve-out itself is unchanged: a text used as an ordinary leaf, never asked to
+carry a hop, still has no traceability requirement, exactly as ticket 07 always allowed.
 
 `lintIr.ts` is the one caller that verifies a real spec, and it supplies
 `(text) => isAnchoredLiteral(text, contract)` — the exact rule a fabricated stub body and a fill's
 typed value are already held to. Every other caller in this package is a unit test exercising a
-rung with nothing to do with anchoring, so the parameter defaults to admitting everything; adding
-it to all of them would have been noise for no test that cares.
+rung with nothing to do with anchoring, so the parameter defaults to admitting everything.
 
-Reproduced at the size of a unit test in `anchorTraceability.spec.ts`: an anchor row whose only
-path to `{exactly: 1}` is an anchored matcher fails to resolve at all once the predicate refuses
-its text, which is what removes it from `resolveByHop`'s candidate list. Mutation-checked: turning
-the gate off breaks exactly the two tests written for it and nothing else in the 550-test suite.
+Reproduced at unit-test size in `anchorTraceability.spec.ts`, in a new describe added after the
+correction ("the gate catches a plain anchor too, not only an anchored-regex one"): two disjoint
+timestamp-like texts, neither a prefix of the other, so the anchor resolves via the plain form —
+and the gate now refuses it exactly when `isTraceable` does. Mutation-checked against the
+*corrected* code: reverting to the leaf-only gate fails exactly this new test and nothing else.
+Re-verified directly against `b2-second`'s own facts after the fix: `resolveSelector` now refuses
+`datapoints-table#111` outright rather than emitting the timestamp anchor.
 
-**What this does not settle:** whether the fixture the next B2 run produces resolves the value-min
-cells the way finding 3 predicts (a position over the repeating `c8y-li-timeline`), or refuses
-outright for lack of any traceable path. Both are honest outcomes; only a measured run says which.
+**What this still does not settle:** the refusal is not a working selector. Finding 3 predicted
+the search would fall through to a position over the repeating `c8y-li-timeline` once the bad
+anchor is removed; measured against `b2-second`'s facts, it does not, because the position rung
+as built checks the *target's own direct-sibling count* (`repeat.siblingsLike`, 2 here — a
+min/max pair inside one entry) rather than an *ancestor's* repeating group (the 20 `c8y-li-timeline`
+entries the human's own selector, `cy.get('c8y-datapoints-table c8y-li-timeline').first()`,
+positions over). Building that is a new capability - an ancestor-scoped position rung - that no
+ticket has decided and this session was not asked to build. Recorded rather than built.
 
 ## Finding 3 — the position rung was the right answer and never got a turn
 

@@ -15,7 +15,7 @@
 import { resolveSelector, emitPath } from "./ladder.js";
 import { row } from "../testing/rows.js";
 import { rowsFromRawNodes } from "../probe/rawNodes.js";
-import { find } from "../testing/rawNodes.js";
+import { find, node } from "../testing/rawNodes.js";
 import { SERIES_NODES } from "../testing/datapointSeriesNodes.js";
 import type { CandidateRow } from "../facts/types.js";
 
@@ -80,6 +80,41 @@ describe("the gate travels through the hop (ticket 17 finding 2's anchor)", () =
   // pinned to data that will not be there when the spec runs stubbed.
   it("refuses the hop rather than emit a selector pinned to an untraceable label", () => {
     const r = resolveSelector(find(rows, "config#4"), rows, { exactly: 1 }, () => false);
+
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("the gate catches a plain anchor too, not only an anchored-regex one", () => {
+  // B2's actual shape, reproduced at unit-test size: unlike the series labels above, a timestamp
+  // needs no prefix pair to force ambiguity - `13 Sept 2026 22:24:36` was already unique among
+  // every row's own text, so it resolved as an ordinary PLAIN leaf and never reached ticket 18
+  // Q2's anchored-regex pass at all. A gate that only watched that pass never saw it, which is
+  // exactly the gap this run's own facts exposed: the ladder still emitted
+  // `cy.contains('small', '13 Sept 2026 22:24:36').parent().find(...)` with the first version of
+  // this rung in place.
+  const nodes = [
+    node(0, -1, "c8y-outer"),
+    node(1, 0, "div"), // entry 1: a bare div, reachable only by hopping off its own child
+    node(2, 1, "small", { text: "13 Sept 2026 22:24:36" }),
+    node(3, 1, "span", { classes: ["chip"] }),
+    node(4, 0, "div"), // entry 2, so `span.chip` alone is ambiguous
+    node(5, 4, "small", { text: "14 Sept 2026 08:00:00" }),
+    node(6, 4, "span", { classes: ["chip"] }),
+  ];
+  const rows = rowsFromRawNodes("t", nodes);
+
+  it("resolves through a plain (unanchored) hop when the timestamp is traceable", () => {
+    const r = resolveSelector(find(rows, "t#3"), rows, { exactly: 1 }, () => true);
+
+    expect(r.ok).toBe(true);
+    expect(r.ok && emitPath(r)).toBe(
+      "cy.contains('small', '13 Sept 2026 22:24:36').parent().find('span.chip')"
+    );
+  });
+
+  it("refuses the same hop once the predicate says the timestamp is not traceable", () => {
+    const r = resolveSelector(find(rows, "t#3"), rows, { exactly: 1 }, () => false);
 
     expect(r.ok).toBe(false);
   });
