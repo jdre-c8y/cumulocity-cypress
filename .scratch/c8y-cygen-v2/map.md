@@ -715,4 +715,4 @@ Ruled beyond this destination. Does not graduate; returns only as a fresh effort
   UI apps and plugins built on `ngx-components`. Generalising further before the tool
   works reliably on known conventions makes the design abstract and unfalsifiable.
 
-- [B2's first run: the probe never reached the widget configuration](issues/19-b2-first-run.md) — FAIL, $4.67, no spec; four findings, none built.
+- [B2's first run: the probe never reached the widget configuration](issues/19-b2-first-run.md) — FAIL, $4.67, no spec; findings 1 and 2 built (2026-09-15), 3 is a caution needing no code, 4 a confirmation. B2 not yet re-run.

@@ -275,6 +275,54 @@ describe("the broken-file corpus", () => {
     expect(messages(input)).toMatch(/'collect' is probe-only/);
   });
 
+  // Ticket 19 finding 1, from B2's first run: `within: "body"` compiled to `$body.find('body')`,
+  // which can never match - `.find()` searches descendants, and body is not its own descendant -
+  // and the miss cost a whole probe run to discover. Catching it here costs a lint turn instead.
+  describe("a collect scoped to the document's own root", () => {
+    const probeInput = (within: string): LintInput => {
+      const ir = b0ProbeIr();
+      const step = ir.steps.find((s) => s.id === "collect-page") as IrStep;
+      (step.collect as { label: string; within: string }).within = within;
+      return { ir, mode: "probe", conventions: b0Conventions(), contract: b0Contract() };
+    };
+
+    it("refuses 'body', which can never be its own descendant", () => {
+      expect(messages(probeInput("body"))).toMatch(/within: "body" cannot match/);
+    });
+
+    it("refuses 'html' the same way", () => {
+      expect(messages(probeInput("html"))).toMatch(/within: "html" cannot match/);
+    });
+
+    // Not a structural miss like body/html - a page can genuinely render one `<main>`. Refused
+    // anyway: naming a landmark this broad is the same "collect everything" move under another
+    // name, and a collect capped at 400 nodes on the whole page is truncated before it reaches
+    // what was being looked for.
+    it("refuses 'main' too, on the same reasoning as an unscoped collect", () => {
+      expect(messages(probeInput("main"))).toMatch(/within: "main" cannot match/);
+    });
+
+    it("is not fooled by case", () => {
+      expect(messages(probeInput("BODY"))).toMatch(/within: "BODY" cannot match/);
+    });
+
+    it("leaves a real component scope alone", () => {
+      expect(messages(probeInput("c8y-device-events"))).not.toMatch(/cannot match/);
+    });
+
+    // The ticket's decision applies "in every mode" - a spec-mode IR should never carry a
+    // `collect` step at all (it is probe-only), but if one arrives anyway the scope refusal
+    // fires alongside that error rather than being skipped because the mode is wrong.
+    it("still fires in spec mode, alongside the probe-only refusal", () => {
+      const input = specInput((ir) => {
+        ir.steps.push({ id: "sneaky", collect: { label: "x", within: "body" } });
+      });
+
+      expect(messages(input)).toMatch(/'collect' is probe-only/);
+      expect(messages(input)).toMatch(/within: "body" cannot match/);
+    });
+  });
+
   it("catches a provisional selector in a spec-mode IR", () => {
     const input = specInput((ir) => {
       (ir.steps[5] as IrStep).click = {

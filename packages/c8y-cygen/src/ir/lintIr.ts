@@ -198,6 +198,12 @@ function missingDollarRefs(s: string, inScope: ReadonlySet<string>): string[] {
 }
 
 /**
+ * A `within` naming the document's own root, under whichever case a model happens to write it.
+ * Ticket 19 finding 1.
+ */
+const UNREACHABLE_SCOPES = new Set(["body", "html", "main"]);
+
+/**
  * A literal in a fabricated body must trace to the scenario contract, a capture or a value
  * builder. Nothing invented. A real POST is not a fiction - it creates real state, and
  * asserting on it is honest - so what transfers from the stub rule is the anchoring, not the ban.
@@ -407,6 +413,30 @@ export function lintIr(input: LintInput): LintResult {
           "vocabulary-gap"
         );
       }
+    }
+
+    // --- a collect scoped to the document's own root, which `.find()` can never reach --
+    // Ticket 19 finding 1, from B2's first run. `within` compiles to `$body.find(within)`, and
+    // `.find()` searches descendants only - `body` and `html` are never their own descendant, so
+    // this scope matches nothing on every page, always. `main` joins the refusal for a different
+    // reason: even where the page renders one, naming a landmark this broad is the same "collect
+    // everything" move under another name, and a collect capped at 400 nodes on the whole page
+    // is truncated before it reaches what was being looked for - which is what the probe's own
+    // domain notes already warn against.
+    //
+    // B2 paid for this by hand: `within: "body"` came back "NOTHING MATCHED THAT SCOPE", true of
+    // the code and false of the page, and it cost a whole probe run to say so. The collect is the
+    // first thing a surface does, so catching this here costs a lint turn instead - the resource
+    // the budget does not meter.
+    if (step.collect && UNREACHABLE_SCOPES.has(step.collect.within.trim().toLowerCase())) {
+      add(
+        where,
+        `within: ${JSON.stringify(step.collect.within)} cannot match anything: a collect scope ` +
+          `compiles to .find(within), which searches descendants only, and body/html/main are ` +
+          `either not their own descendant or broad enough to be the same "collect everything" ` +
+          `move by another name. Omit 'within' to collect from the whole document (still capped ` +
+          `at 400 nodes), or name a narrower element the page actually renders.`
+      );
     }
 
     // --- the request body is anchored ------------------------------------------------
@@ -700,9 +730,14 @@ export function lintIr(input: LintInput): LintResult {
     }
 
     // The verifiable link: the ladder applied to the named row must reproduce the selector.
+    // Ticket 17 finding 2: the ladder cannot tell a human-written label from a live-tenant
+    // timestamp on its own, so it is told the same way a fabricated stub body is - can this text
+    // be found in the contract the human wrote.
     const surface = findSurfaceOf(facts, target.fromRow);
     const rows = surface ? surface.rows : [row];
-    const again = resolveSelector(row, rows, cardinalityOf(step));
+    const again = resolveSelector(row, rows, cardinalityOf(step), (text) =>
+      isAnchoredLiteral(text, contract)
+    );
     if (!again.ok) {
       add(where, `the ladder now refuses row '${target.fromRow}': ${again.reason}`, "ambiguous-provisional");
     } else if (emitPath(again) !== target.resolved) {

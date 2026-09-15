@@ -1,7 +1,8 @@
 # B2's first run: the probe never reached the widget configuration
 
 Type: post-mortem
-Status: open — four findings, none built
+Status: findings 1 and 2 built (2026-09-15); finding 3 is a caution rather than code and needs no
+change; finding 4 is a confirmation. B2 has not been re-run since.
 Blocked by: — (17 and 18 built; this is what running them measured)
 Assignee: jdre
 
@@ -66,6 +67,26 @@ probe run 5 of 5.
 inventory, **without spending the run** — the collect is the first step of the surface, so the
 probe can report the refusal and carry on rather than dying two steps later.
 
+### Built
+
+A semantic-linter rule, `lintIr.ts`: any `collect` step whose `within` is `body`, `html` or
+`main` (case-insensitively) is refused before compiling, in every mode. Deliberately a lint
+error rather than a runtime correction — nothing here silently rewrites what the model wrote, the
+same way a provisional selector reaching the spec back-end is a lint rule and not a compiler
+fallback.
+
+`main` is grouped with `body` and `html` on a different argument than the other two: a page can
+genuinely render one, so `.find('main')` is not a *structural* miss the way `.find('body')` is.
+It is refused anyway, because naming it is the same "collect everything" move under a different
+name, and a collect capped at 400 nodes on the whole page is truncated before it reaches what was
+being looked for — the hazard the domain notes already warn against.
+
+**What this decision does not do:** it does not hand back the component inventory itself, because
+a lint rule runs before anything is observed and has no page to inventory. The message instead
+names the two ways out — omit `within` for the same effect deliberately, or name a narrower
+element — which is the information the model actually needs at that point, one iteration earlier
+than the inventory would otherwise have arrived.
+
 ## Finding 2 — the anchored scope will anchor on live data
 
 The rung built for B2 fired on B2, and its first real output was:
@@ -102,6 +123,29 @@ exact test for *did a human write this down*.
 Note what this does **not** say: the plain text rung has the same exposure and has had it since
 ticket 07. B1 and B0 passed with it. Widening the rule to every text leaf is a separate argument
 and is not made here.
+
+### Built
+
+`ladder.ts` gained `isTraceable`, a predicate threaded through `resolveSelector`, `resolve` and
+`resolveByHop`: a text may become an anchored matcher only where the predicate says so. It gates
+the anchored pass at the leaf (ticket 18 Q2) and, because `resolveByHop`'s own resolution of a
+candidate anchor calls back into `resolve` with the same predicate, the hop (ticket 17 finding 2)
+inherits the same gate for free — one check, not two.
+
+`lintIr.ts` is the one caller that verifies a real spec, and it supplies
+`(text) => isAnchoredLiteral(text, contract)` — the exact rule a fabricated stub body and a fill's
+typed value are already held to. Every other caller in this package is a unit test exercising a
+rung with nothing to do with anchoring, so the parameter defaults to admitting everything; adding
+it to all of them would have been noise for no test that cares.
+
+Reproduced at the size of a unit test in `anchorTraceability.spec.ts`: an anchor row whose only
+path to `{exactly: 1}` is an anchored matcher fails to resolve at all once the predicate refuses
+its text, which is what removes it from `resolveByHop`'s candidate list. Mutation-checked: turning
+the gate off breaks exactly the two tests written for it and nothing else in the 550-test suite.
+
+**What this does not settle:** whether the fixture the next B2 run produces resolves the value-min
+cells the way finding 3 predicts (a position over the repeating `c8y-li-timeline`), or refuses
+outright for lack of any traceable path. Both are honest outcomes; only a measured run says which.
 
 ## Finding 3 — the position rung was the right answer and never got a turn
 

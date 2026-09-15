@@ -11,17 +11,8 @@
  */
 import { resolveSelector, emitPath } from "./ladder.js";
 import { rowsFromRawNodes, type RawNode } from "../probe/rawNodes.js";
-import type { CandidateRow } from "../facts/types.js";
-
-function node(i: number, parent: number, tag: string, over: Partial<RawNode> = {}): RawNode {
-  return { i, parent, tag, attrs: {}, classes: [], text: "", visibility: "visible", ...over };
-}
-
-const find = (rows: CandidateRow[], id: string): CandidateRow => {
-  const hit = rows.find((r) => r.id === id);
-  if (!hit) throw new Error(`no such fixture row: ${id}`);
-  return hit;
-};
+import { find, node } from "../testing/rawNodes.js";
+import { SERIES_NODES } from "../testing/datapointSeriesNodes.js";
 
 /**
  * B1's asset-selector chip, as the probe collected it. The chip carries a layout class and
@@ -36,24 +27,6 @@ const CHIP_NODES: RawNode[] = [
   node(4, 0, "div", { classes: ["d-flex", "p-r-16"] }),
   node(5, 4, "button", { attrs: { "data-cy": "Group selection" }, text: "Select group" }),
   node(6, 4, "span", { classes: ["chip", "tag"] }),
-];
-
-/**
- * B2's datapoint selector list. Two series on one fragment, the second named for the first with
- * a `2` on the end, each in its own list item with its own render-type select. Nothing but the
- * label text tells the two items apart, which is why the anchor here is a rung-4 row.
- */
-const series = (i: number, name: string): RawNode[] => [
-  node(i, 0, "c8y-datapoint-selector-list-item"),
-  node(i + 1, i, "div", { classes: ["d-flex"] }),
-  node(i + 2, i + 1, "span", { classes: ["text-truncate"], text: name }),
-  node(i + 3, i, "select", { attrs: { formcontrolname: "renderType" } }),
-];
-
-const SERIES_NODES: RawNode[] = [
-  node(0, -1, "c8y-datapoint-selector"),
-  ...series(1, "e2eSeries"),
-  ...series(5, "e2eSeries2"),
 ];
 
 describe("reaching an element by the neighbour that names it", () => {

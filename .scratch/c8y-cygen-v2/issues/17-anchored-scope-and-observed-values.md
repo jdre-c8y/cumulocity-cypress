@@ -1,7 +1,7 @@
 # Anchored scope, and the value no row carries
 
 Type: prototype
-Status: **all seven findings built.** Finding 2 (the anchored scope rung) was built on 2026-09-13, when B2 turned it from B4's dependency into B2's blocker; it has not been exercised by a measured run. **B1 PASSES** as of run six. B1's spec now passes; axis A fails only on the first-attempt rule.
+Status: **all seven findings built.** Finding 2 (the anchored scope rung) was built on 2026-09-13, when B2 turned it from B4's dependency into B2's blocker; it has not been exercised by a measured run. Corrected on 2026-09-15 — see the note under finding 2 below and [ticket 19](19-b2-first-run.md) finding 2. **B1 PASSES** as of run six. B1's spec now passes; axis A fails only on the first-attempt rule.
 Blocked by: — (07 resolved; reopened by the B1 oracle run)
 Assignee: jdre
 
@@ -247,6 +247,20 @@ pairs are already in hand. Nothing new crosses the browser boundary.
 This matters against ticket 02's falsification criterion, which reopens the Cypress-probe
 decision above ~3 probe runs per scenario. B1 spent 5 against a cap of 5. A rung that needed
 a second observation could not be afforded; this one needs none.
+
+### Corrected after B2's first run (2026-09-15): the anchor must be traceable, not merely unique
+
+B2's own run found the gap this section's reasoning did not: the hop's uniqueness search does not
+care *what* the identifying text is, only that it is unique, and a probe walking the live tenant
+can hand back a timestamp as readily as a label a human wrote in the contract. B2's first anchor
+was `cy.contains('small', '13 Sept 2026 22:24:36')` — live data pinned into a selector that has to
+survive a stubbed spec run.
+
+The fix is [ticket 19](19-b2-first-run.md) finding 2: `resolveByHop`'s recursive resolution of a
+candidate anchor now carries the same traceability predicate the leaf rung (ticket 18 Q2) does, so
+an anchor that can only be told apart from its neighbours by an untraceable text fails to resolve
+at all, dropping it from the hop's candidate list. Nothing above this note changes — the hop
+itself, the ceiling, the `.closest()` shadowing check and the count test are exactly as built.
 
 ## Finding 3 — no row carries a value, so `extract: "value"` can never be anchored
 

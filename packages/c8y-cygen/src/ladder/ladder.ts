@@ -286,6 +286,22 @@ const anchorable = (d: Descriptor): d is TextDescriptor =>
 
 const anchor = (d: TextDescriptor): TextDescriptor => ({ tag: d.tag, text: d.text, anchored: true });
 
+/**
+ * Whether a text is trustworthy enough to identify an element by, rather than merely well-formed
+ * enough to anchor (that is `anchorable`, above - a different question).
+ *
+ * Ticket 17 finding 2's rung reaches for whatever text makes a neighbouring row unique, and a
+ * probe walks the live tenant - so on B2's first run the text it reached for was a timestamp,
+ * `13 Sept 2026 22:24:36`, which cannot survive the crossing into a spec run against a stubbed
+ * fixture. The default admits everything, because almost every caller in this file's tests is
+ * exercising a rung that has nothing to do with anchoring and has no contract to check against.
+ * `lintIr.ts`, the one caller that verifies a real spec, always supplies
+ * `(text) => isAnchoredLiteral(text, contract)` - the same rule a fabricated stub body is held
+ * to, because "did a human write this down" is exactly as good a test here as it is there.
+ */
+type Traceable = (text: string) => boolean;
+const ALWAYS_TRACEABLE: Traceable = () => true;
+
 interface LeafCandidate {
   rung: number;
   id: string;
@@ -366,6 +382,11 @@ function hopTo(anchor: CandidateRow, sharedNode: number): Hop | null {
  * composition is B2's line: the matcher names the series label, and this walks out of the label
  * to the list item that holds it, exactly as the human wrote it by hand.
  *
+ * `isTraceable` travels into that resolution (below), not just into this function's own leaves -
+ * an anchor row that can only be told apart from its neighbours by an untraceable text must fail
+ * to resolve at all, which drops it from `candidates` and lets the search fall through to the
+ * position rung. B2's first run reached for a timestamp here for exactly this reason.
+ *
  * Anchors are filtered structurally before any of them is resolved - shared ancestor, legal hop,
  * acceptable count - because resolving one is the expensive half and the structural test throws
  * away nearly all of them. Deepest shared ancestor first: the tightest scope is both the best
@@ -375,7 +396,8 @@ function resolveByHop(
   target: CandidateRow,
   rows: CandidateRow[],
   cardinality: Cardinality,
-  leaves: LeafCandidate[]
+  leaves: LeafCandidate[],
+  isTraceable: Traceable = ALWAYS_TRACEABLE
 ): LadderHit | undefined {
   if (spineOf(target).length === 0) return undefined;
 
@@ -396,7 +418,7 @@ function resolveByHop(
   const anchorExpression = (r: CandidateRow): string | null => {
     const cached = resolved.get(r.id);
     if (cached !== undefined) return cached;
-    const hit = resolve(r, rows, { exactly: 1 }, false);
+    const hit = resolve(r, rows, { exactly: 1 }, false, isTraceable);
     // A position would make the anchor depend on DOM order, which is what the hop exists to
     // stop the *target* depending on. It cannot come back in through the other half.
     const usable = hit.ok && hit.leafRung <= ANCHOR_MAX_RUNG && hit.position === undefined;
@@ -433,16 +455,18 @@ function resolveByHop(
 export function resolveSelector(
   target: CandidateRow,
   rows: CandidateRow[],
-  cardinality: Cardinality
+  cardinality: Cardinality,
+  isTraceable: Traceable = ALWAYS_TRACEABLE
 ): LadderResult {
-  return resolve(target, rows, cardinality, true);
+  return resolve(target, rows, cardinality, true, isTraceable);
 }
 
 function resolve(
   target: CandidateRow,
   rows: CandidateRow[],
   cardinality: Cardinality,
-  allowHop: boolean
+  allowHop: boolean,
+  isTraceable: Traceable = ALWAYS_TRACEABLE
 ): LadderResult {
   const leaves = RUNGS.map((g) => ({ rung: g.n, id: g.id, d: rungOf(g, target) })).filter(
     (x): x is LeafCandidate => x.d !== null
@@ -516,8 +540,12 @@ function resolve(
   // names would match zero elements and fail on a timeout rather than on a count this function
   // could refuse. That target needs ticket 17's anchored-scope rung - reach the element carrying
   // the text, then walk out to the component holding it - composed with this one at the leaf.
+  //
+  // Traceable only. `anchorable` says a text is well-formed enough to anchor; it says nothing
+  // about whether the text is safe to trust as an identity, and a probe walking the live tenant
+  // can hand back a timestamp as readily as a label a human wrote in the contract.
   const anchoredLeaves = leaves
-    .filter((x) => anchorable(x.d))
+    .filter((x) => anchorable(x.d) && isTraceable((x.d as TextDescriptor).text))
     .map((x) => ({ ...x, d: anchor(x.d as TextDescriptor) }));
 
   if (anchoredLeaves.length > 0) {
@@ -528,7 +556,7 @@ function resolve(
   // Before the position rung, and deliberately: a hop is an identity the probe measured, and a
   // position is the order the page happened to render in.
   if (allowHop) {
-    const hop = resolveByHop(target, rows, cardinality, [...leaves, ...anchoredLeaves]);
+    const hop = resolveByHop(target, rows, cardinality, [...leaves, ...anchoredLeaves], isTraceable);
     if (hop) return hop;
   }
 

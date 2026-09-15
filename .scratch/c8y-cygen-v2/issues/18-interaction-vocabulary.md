@@ -253,6 +253,14 @@ Two of these are the same mistake in different clothes: an anchored matcher asse
 recorded text is *the whole of* what the element holds, and the facts only ever promised that it
 was *part of* it. The plain form never made that assertion, which is why it never noticed.
 
+4. **Corrected 2026-09-15, after B2's first run: uniqueness is not the same claim as
+   trustworthiness.** The rung reaches for whatever text makes a row unique, and a probe walking
+   the live tenant can hand back a timestamp as readily as `e2eSeries`. Fixed in
+   [ticket 19](19-b2-first-run.md) finding 2 with `isTraceable`, a predicate `resolveSelector`
+   threads through the anchored pass: `lintIr.ts` supplies `(text) => isAnchoredLiteral(text,
+   contract)`, the same rule a fabricated stub body is already held to. `e2eSeries` is in the
+   contract; a live timestamp is not.
+
 #### What this costs B2
 
 B2's central line — `cy.contains(item, seriesName).find('select[formcontrolname="renderType"]')`
