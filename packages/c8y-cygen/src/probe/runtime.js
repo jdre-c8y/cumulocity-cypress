@@ -450,10 +450,16 @@ var PROVISIONAL_POLL_MS = 250;
  * mode: that chain throws and takes the whole run with it on a miss, the same hazard finding 1
  * fixed for a collect's scope. A miss here is reported instead - see the empty-match branch
  * below - so a wrong guess costs its own progress and not the run.
+ *
+ * Yields `null` on a miss rather than the empty jQuery collection `candidatesFor` returned:
+ * Cypress applies its own default DOM-existence retry to any command that yields a jQuery
+ * object, empty or not, so wrapping the empty collection re-introduces the exact throw-and-wait
+ * this function exists to avoid. `null` carries no such assertion.
  */
 function pollForGuess(guess, deadline) {
   var $found = candidatesFor(guess);
-  if ($found.length > 0 || Date.now() >= deadline) return cy.wrap($found, { log: false });
+  if ($found.length > 0) return cy.wrap($found, { log: false });
+  if (Date.now() >= deadline) return cy.wrap(null, { log: false });
   return cy.wait(PROVISIONAL_POLL_MS, { log: false }).then(function () {
     return pollForGuess(guess, deadline);
   });
@@ -465,7 +471,7 @@ Cypress.Commands.add('c8yCygenProvisional', function (stepId, guess) {
     // Reported exactly like a missed collect scope: the miss costs its own rows and nothing
     // else, and the page's real components travel back with it - the answer to the question
     // the wrong guess was asking.
-    if ($all.length === 0) {
+    if (!$all || $all.length === 0) {
       return cy.get('body').then(function ($body) {
         return writeFacts({
           kind: 'provisional',

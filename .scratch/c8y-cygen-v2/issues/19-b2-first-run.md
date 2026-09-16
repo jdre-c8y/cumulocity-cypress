@@ -4,10 +4,13 @@ Type: post-mortem
 Status: findings 1 and 2 built (2026-09-15). `b2-second` re-ran against them and still FAILed on
 the probe-run cap; its own facts caught finding 2's first version scoped to the wrong mechanism
 (see finding 2's "Built" section) and it was corrected the same day. Finding 3 is a caution rather
-than code and needs no change; finding 4 is a confirmation. Finding 5 — the click/settle
-counterpart of finding 1 — built 2026-09-16, ahead of a third run. The ancestor-scoped position
-rung gap `b2-second` also surfaced is still un-speced and deliberately deferred until a third run's
-own facts show whether it is still needed.
+than code and needs no change; finding 4 is a confirmation. Finding 5 built 2026-09-16. `b2-third`
+(same day) caught a bug in finding 5 itself before it ever reached a real guess — `cy.wrap()` on
+an empty jQuery collection re-triggers Cypress's own retry-then-throw — corrected, and
+`b2-fourth` **PASSED**: axis A and B automated-PASS (green first attempt, 6/6 outcomes), axes C
+and D pending human grading. The ancestor-scoped position rung gap was never needed: freed of the
+click-guess hazard, the model found `[data-cy="c8y-virtual-scroll-wrapper--fixed"]` — a pinned-row
+wrapper the widget exposes on its own — and never touched the 20-item repeating list at all.
 Blocked by: — (17 and 18 built; this is what running them measured)
 Assignee: jdre
 
@@ -25,6 +28,18 @@ run b2-second   FAIL — no spec produced, so nothing to score on axes A or B (f
   note               TRIPWIRE: 5 probe runs against a cap of 5
   note               at least one start-to-start gap between Cypress runs exceeded five minutes
   died on            the same `.modal-content` guess as b2-first, one iteration later
+  stray files        0
+
+run b2-third    discarded — not a measurement. Killed by a bug in finding 5 itself: cy.wrap()
+                on an empty jQuery collection re-triggers Cypress's own retry-then-throw, the
+                exact hazard finding 5 exists to remove. Cost and iteration count not recorded
+                as a result for this reason.
+
+run b2-fourth   PASS — axis A and B automated-PASS; axes C and D await human grading
+  cost               $5.9143 over 9 iterations, 6 Cypress runs (5 probe), 9 model turns
+  outcomes           6 of 6, checked against the emitted spec independently of Cypress
+  note               TRIPWIRE: 5 probe runs against a cap of 5
+  note               at least one start-to-start gap between Cypress runs exceeded five minutes
   stray files        0
 ```
 
@@ -244,17 +259,32 @@ Matching had to be redone carefully rather than lifted from the existing `countM
 silently stopped finding a label that sits in a child element — most of this app's buttons. The
 final version matches on rendered (subtree) text, the same thing `.contains()` matched on, and
 keeps only the innermost match when more than one candidate's text carries the criterion,
-mirroring `.contains()`'s own preference for the deepest element. Caught by review before ever
-reaching a live run, not by one — the two-round mistake finding 2 made above is not repeated here.
+mirroring `.contains()`'s own preference for the deepest element. Two review passes caught this
+and a missing try/catch around a guess that may not even parse, before any run was spent.
 
 `readFacts.ts` and `facts/types.ts` needed one line and one comment each: a missed provisional
 payload spreads `scopeMissed`/`pageComponents` onto its surface exactly like a missed collect
 does, and `summariseFacts`'s existing miss-rendering was already generic across both — built
 once, for collect, and it just works a second time.
 
+### Corrected again, this time by a live run and not by review (2026-09-16)
+
+Review did not catch everything: `b2-third` died one iteration in, inside the poll loop itself,
+before it ever reached a model-authored guess. `pollForGuess`'s give-up branch returned
+`cy.wrap($found, { log: false })` with `$found` an *empty* jQuery collection, and Cypress applies
+its own default DOM-existence retry to any command yielding a jQuery-shaped subject, empty or
+not — so wrapping the empty collection silently re-triggered the exact throw-and-crash this
+finding exists to remove. `git log`'s neat one-mistake-then-correction shape from finding 2 did
+not repeat here by design; it repeated because the same class of thing — a review reasons about
+code, a run reasons about Cypress — keeps finding different bugs.
+
+Fixed by yielding a plain `null` on a genuine miss instead of the empty collection: `null` carries
+no DOM shape for Cypress's retry logic to latch onto, and the non-empty success path already
+existed in the DOM at the moment it is wrapped, so nothing changes there. `b2-fourth` re-ran
+clean.
+
 **What this does not touch:** the ancestor-scoped position rung gap the second run also surfaced.
-It is still open, still un-speced, and deliberately deferred until a third run's own facts show
-whether it is still in the way.
+It turned out not to be needed — see the run result above.
 
 ## What this run does not show
 
