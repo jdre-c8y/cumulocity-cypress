@@ -715,4 +715,4 @@ Ruled beyond this destination. Does not graduate; returns only as a fresh effort
   UI apps and plugins built on `ngx-components`. Generalising further before the tool
   works reliably on known conventions makes the design abstract and unfalsifiable.
 
-- [B2's first run: the probe never reached the widget configuration](issues/19-b2-first-run.md) — FAIL, $4.67, no spec; findings 1 and 2 built (2026-09-15), 3 is a caution needing no code, 4 a confirmation. B2 not yet re-run.
+- [B2's first run: the probe never reached the widget configuration](issues/19-b2-first-run.md) — FAIL, $4.67, no spec; findings 1 and 2 built (2026-09-15), 3 is a caution needing no code, 4 a confirmation. Re-run (`b2-second`) still FAIL, $6.96 — findings 1/2 held, model reached the datapoints table and the ladder correctly refused a live-data anchor, but the run then exhausted its probe budget guessing a wrong modal selector elsewhere in the flow (finding 1's scope doesn't reach a click/settle target, only a collect's `within`) — a new, un-speced gap, plus the position rung's lack of an ancestor-scoped form. Neither built.

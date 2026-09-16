@@ -343,6 +343,58 @@ describe("a scope that matched nothing", () => {
   });
 });
 
+describe("a provisional guess that matched nothing", () => {
+  // The click/settle counterpart of the miss above. `.modal-content` never existed on the
+  // page; B2's own facts show this crashing the run outright rather than reading as a miss.
+  const MISS = {
+    kind: "provisional",
+    stepId: "click-open-config",
+    label: "click-open-config",
+    within: null,
+    scopeMissed: true,
+    pageComponents: [
+      { tag: "c8y-widget-config", count: 1 },
+      { tag: "c8y-modal", count: 1 },
+    ],
+    observedAt: "2026-09-15T20:43:00.000Z",
+    matchCount: 0,
+    matchedIndex: -1,
+    nodes: [],
+  };
+
+  it("is a payload the boundary accepts", () => {
+    expect(parsePayload(JSON.stringify(MISS), "x.json")).toMatchObject({ scopeMissed: true });
+  });
+
+  it("reads as a missed surface, the same shape a missed collect does", () => {
+    withTempDir((dir) => {
+      fs.writeFileSync(path.join(dir, "001-provisional.json"), JSON.stringify(MISS));
+
+      const facts = readFacts(dir, { runId: "r1", tenantUrl: "https://t.example" });
+
+      expect(facts.surfaces).toHaveLength(1);
+      expect(facts.surfaces[0]).toMatchObject({
+        label: "click-open-config",
+        scopeMissed: true,
+        rows: [],
+      });
+      expect(facts.provisionalMatches[0]).toMatchObject({ matchCount: 0, row: null });
+    });
+  });
+
+  it("tells the model what the page carries instead of just having crashed", () => {
+    withTempDir((dir) => {
+      fs.writeFileSync(path.join(dir, "001-provisional.json"), JSON.stringify(MISS));
+      const facts = readFacts(dir, { runId: "r1", tenantUrl: "https://t.example" });
+
+      const summary = summariseFacts(facts);
+
+      expect(summary).toMatch(/NOTHING MATCHED THAT SCOPE/);
+      expect(summary).toContain("c8y-widget-config");
+    });
+  });
+});
+
 describe("two collects that share a label", () => {
   const collect = (nodes: RawNode[]) => ({
     kind: "collect",

@@ -16,7 +16,7 @@
     "scopeMissed": { "type": "boolean" },
     "pageComponents": {
       "type": "array",
-      "description": "Every custom element on the page, written when `within` matched nothing. It answers the question the wrong scope guess was asking, and unlike a page-wide walk it does not truncate.",
+      "description": "Every custom element on the page, written when a collect's `within` or a provisional guess matched nothing. It answers the question the wrong guess was asking, and unlike a page-wide walk it does not truncate.",
       "items": {
         "type": "object",
         "required": ["tag", "count"],

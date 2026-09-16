@@ -392,40 +392,101 @@ Cypress.Commands.add('c8yCygenCollect', function (options) {
  * The match count travels with it. Resolution refuses on a mismatch against the step's declared
  * cardinality rather than silently taking the first of several, which is what Cypress would do.
  */
+
 /**
- * How many elements the guess could have meant, measured over the same own text the ladder's
- * rows carry.
- *
- * Counted here rather than off the `.contains()` result, because `.contains()` yields exactly
- * ONE element - so `$all.length` was always 1 for any guess carrying `text` or `matches`, which
- * is precisely the vague guess the count exists to flag. The refusal below promised to stop
- * silently taking the first of several and could never fire.
- *
- * Synchronous, and deliberately after the retrying chain has already resolved: the DOM has
- * settled by then, so a plain query sees what the assertion saw.
+ * Whether `el`'s rendered text - its own text and its descendants', normalised the way
+ * `.contains()` compares it - carries the guess's `text`/`matches` criterion.
  */
-function countMatches(guess) {
-  var $all = Cypress.$(guess.within || 'body').find(guess.tag || '*');
-  var re = guess.matches ? new RegExp(guess.matches) : null;
-  var n = 0;
-  $all.each(function (_i, el) {
-    var text = ownTextOf(el);
-    if (guess.text && text.indexOf(guess.text) === -1) return;
-    if (re && !re.test(text)) return;
-    n += 1;
+function rendersGuessText(el, guess, re) {
+  var text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+  if (guess.text && text.indexOf(guess.text) === -1) return false;
+  if (re && !re.test(text)) return false;
+  return true;
+}
+
+/**
+ * The guess's own current matches, read synchronously and never waited on here - polling is
+ * `pollForGuess`'s job.
+ *
+ * Matches on rendered (subtree) text, the same thing the `.contains()` chain this replaces
+ * matched on - an own-text-only reading would silently stop finding a label that sits in a
+ * child element, which is most of a Material-style button. Where more than one candidate's
+ * text carries the criterion, only the innermost is kept, mirroring `.contains()`'s own
+ * preference for the deepest match - otherwise a button and the label inside it would both
+ * count, and the declared-cardinality check two callers up would see two matches for what a
+ * human sees as one.
+ *
+ * `within` or `tag` may not even parse as a selector - a model-made-up guess is a guess like
+ * any other - so this is a miss like any other too, the same reasoning `c8yCygenCollect` already
+ * applies to its own `within`.
+ */
+function candidatesFor(guess) {
+  try {
+    var $scope = guess.within ? Cypress.$(guess.within) : null;
+    if (guess.within && $scope.length === 0) return Cypress.$();
+    var $all = guess.within ? $scope.find(guess.tag || '*') : Cypress.$(guess.tag || 'body');
+    if (!guess.text && !guess.matches) return $all;
+    var re = guess.matches ? new RegExp(guess.matches) : null;
+    var $matching = $all.filter(function (_i, el) {
+      return rendersGuessText(el, guess, re);
+    });
+    return $matching.filter(function (_i, el) {
+      var hasMatchingDescendant = false;
+      $matching.each(function (_j, other) {
+        if (other !== el && Cypress.$.contains(el, other)) hasMatchingDescendant = true;
+      });
+      return !hasMatchingDescendant;
+    });
+  } catch {
+    return Cypress.$();
+  }
+}
+
+var PROVISIONAL_TIMEOUT_MS = 10000;
+var PROVISIONAL_POLL_MS = 250;
+
+/**
+ * Waits out the same window `cy.get().find().contains()` used to retry for, without its failure
+ * mode: that chain throws and takes the whole run with it on a miss, the same hazard finding 1
+ * fixed for a collect's scope. A miss here is reported instead - see the empty-match branch
+ * below - so a wrong guess costs its own progress and not the run.
+ */
+function pollForGuess(guess, deadline) {
+  var $found = candidatesFor(guess);
+  if ($found.length > 0 || Date.now() >= deadline) return cy.wrap($found, { log: false });
+  return cy.wait(PROVISIONAL_POLL_MS, { log: false }).then(function () {
+    return pollForGuess(guess, deadline);
   });
-  return n;
 }
 
 Cypress.Commands.add('c8yCygenProvisional', function (stepId, guess) {
-  var chain = guess.within
-    ? cy.get(guess.within).find(guess.tag || '*')
-    : cy.get(guess.tag || 'body');
-  if (guess.text) chain = chain.contains(guess.text);
-  if (guess.matches) chain = chain.contains(new RegExp(guess.matches));
-
-  return chain.then(function ($all) {
-    var matchCount = countMatches(guess);
+  var deadline = Date.now() + PROVISIONAL_TIMEOUT_MS;
+  return pollForGuess(guess, deadline).then(function ($all) {
+    // Reported exactly like a missed collect scope: the miss costs its own rows and nothing
+    // else, and the page's real components travel back with it - the answer to the question
+    // the wrong guess was asking.
+    if ($all.length === 0) {
+      return cy.get('body').then(function ($body) {
+        return writeFacts({
+          kind: 'provisional',
+          stepId: stepId,
+          label: stepId,
+          within: guess.within || null,
+          observedAt: new Date().toISOString(),
+          scopeMissed: true,
+          pageComponents: pageComponents($body[0]),
+          matchCount: 0,
+          matchedIndex: -1,
+          nodes: []
+        }).then(function () {
+          throw new Error(
+            "c8y-cygen probe, step '" + stepId + "': the guess matched nothing. The page's " +
+              'components are recorded in the facts - name one of them instead.'
+          );
+        });
+      });
+    }
+    var matchCount = $all.length;
     var $one = typeof guess.nth === 'number' ? $all.eq(guess.nth) : $all.first();
     var el = $one.get(0);
     // An out-of-range `nth` used to die two lines down as "Cannot read properties of undefined

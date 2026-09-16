@@ -211,6 +211,9 @@ export function readFacts(dir: string, options: ReadFactsOptions): FactsDocument
       within: payload.within ?? null,
       observedAt: payload.observedAt,
       rows,
+      ...(payload.scopeMissed
+        ? { scopeMissed: true, pageComponents: payload.pageComponents ?? [] }
+        : {}),
     });
   }
 

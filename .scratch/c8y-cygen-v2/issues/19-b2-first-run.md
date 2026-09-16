@@ -4,8 +4,10 @@ Type: post-mortem
 Status: findings 1 and 2 built (2026-09-15). `b2-second` re-ran against them and still FAILed on
 the probe-run cap; its own facts caught finding 2's first version scoped to the wrong mechanism
 (see finding 2's "Built" section) and it was corrected the same day. Finding 3 is a caution rather
-than code and needs no change; finding 4 is a confirmation. A new, un-speced gap surfaced by
-`b2-second` — the position rung has no ancestor-scoped form — is recorded, not built.
+than code and needs no change; finding 4 is a confirmation. Finding 5 — the click/settle
+counterpart of finding 1 — built 2026-09-16, ahead of a third run. The ancestor-scoped position
+rung gap `b2-second` also surfaced is still un-speced and deliberately deferred until a third run's
+own facts show whether it is still needed.
 Blocked by: — (17 and 18 built; this is what running them measured)
 Assignee: jdre
 
@@ -210,6 +212,49 @@ Four outcomes, each refused twice. This is the guard [ticket 17](17-anchored-sco
 finding 6 built and the note recorded as never having been exercised by a measured run. It has
 now, and it did exactly its job: the run ended with **no spec** rather than with a green spec
 that asserted nothing. A FAIL for the right reason is the outcome the guard exists to produce.
+
+## Finding 5 — a wrong click/settle guess crashed the run instead of reporting what was really there
+
+`b2-second`'s own diagnostics show four of its five probe runs dying the same way: a click's
+provisional guess (a data-cy attribute, a text match, `.modal-content`) matched nothing, and
+Cypress's own retry-then-throw took the whole `it()` down with it — a bare 10-second timeout, no
+diagnostic, nothing written to facts. Four wasted probe runs out of a cap of five, guessing blind
+each time.
+
+`c8yCygenCollect` already solved exactly this problem for a collect's `within`: a miss is checked
+for synchronously and reported as an empty surface carrying the page's real component inventory,
+so the next guess has something to go on. `c8yCygenProvisional` — click and settle's resolver —
+never got the same treatment; it relied on Cypress's own implicit retry-and-throw, which crashes
+the test before anything can be recorded.
+
+**Decision to take:** report a provisional miss the same way — `scopeMissed` plus
+`pageComponents` — instead of letting Cypress's own timeout crash the run.
+
+### Built (2026-09-16)
+
+`runtime.js`'s `c8yCygenProvisional` no longer relies on Cypress's `cy.get().find().contains()`
+retry chain. It polls synchronously (`candidatesFor`, `pollForGuess`) over the same ~10-second
+window, and on a genuine miss writes a `provisional` payload with `scopeMissed: true` and the
+page's component inventory before throwing — so the run still ends the same way it always did,
+but the facts it leaves behind now answer the question the wrong guess was asking, instead of a
+bare stack trace.
+
+Matching had to be redone carefully rather than lifted from the existing `countMatches` helper:
+`countMatches` measured own text only, which was fine for counting ambiguity but would have
+silently stopped finding a label that sits in a child element — most of this app's buttons. The
+final version matches on rendered (subtree) text, the same thing `.contains()` matched on, and
+keeps only the innermost match when more than one candidate's text carries the criterion,
+mirroring `.contains()`'s own preference for the deepest element. Caught by review before ever
+reaching a live run, not by one — the two-round mistake finding 2 made above is not repeated here.
+
+`readFacts.ts` and `facts/types.ts` needed one line and one comment each: a missed provisional
+payload spreads `scopeMissed`/`pageComponents` onto its surface exactly like a missed collect
+does, and `summariseFacts`'s existing miss-rendering was already generic across both — built
+once, for collect, and it just works a second time.
+
+**What this does not touch:** the ancestor-scoped position rung gap the second run also surfaced.
+It is still open, still un-speced, and deliberately deferred until a third run's own facts show
+whether it is still in the way.
 
 ## What this run does not show
 

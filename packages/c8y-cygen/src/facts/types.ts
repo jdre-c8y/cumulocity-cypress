@@ -98,15 +98,16 @@ export interface PageComponent {
   count: number;
 }
 
-/** The elements one collect point gathered, bounded by its `within`. */
+/** The elements one collect point, or one resolved provisional guess, gathered. */
 export interface CollectedSurface {
   label: string;
   within: string | null;
   observedAt: string;
   rows: CandidateRow[];
   /**
-   * True when `within` matched nothing. The surface is then empty rather than absent: a scope is
-   * a guess, and a guess that misses has to cost its own rows and nothing else.
+   * True when a collect's `within` matched nothing, or a provisional guess (click/settle)
+   * matched nothing. The surface is then empty rather than absent: a scope, or a guess, is a
+   * guess either way, and one that misses has to cost its own rows and nothing else.
    */
   scopeMissed?: boolean;
   /** Written only on a miss: what the page's components are actually called. */
